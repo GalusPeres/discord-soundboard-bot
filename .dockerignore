@@ -1,0 +1,5 @@
+config/config.json
+config/soundCounts.json
+config/sound_logs.txt
+sounds/*.mp3
+node_modules

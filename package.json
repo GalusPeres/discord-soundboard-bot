@@ -1,0 +1,26 @@
+{
+  "name": "discord_soundboard_bot_modular",
+  "version": "3.0.0",
+  "description": "Modularer Discord Soundboard Bot - Sauber organisiert",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "galusperes",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/voice": "^0.16.1",
+    "archiver": "^7.0.1",
+    "discord.js": "^14.19.3",
+    "ffmpeg-static": "^5.2.0",
+    "libsodium-wrappers": "^0.7.13"
+  },
+  "devDependencies": {
+    "eslint": "^8.55.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

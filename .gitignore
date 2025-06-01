@@ -1,0 +1,19 @@
+# ========== SECRETS ==========
+config/config.json
+.env
+
+# ========== NODE.JS ==========
+node_modules/
+npm-debug.log*
+*.log
+
+# ========== GENERATED DATA ==========
+config/sound_logs.txt
+config/soundCounts.json
+
+# ========== TEMP ==========
+temp/
+
+# ========== SYSTEM ==========
+.DS_Store
+Thumbs.db
