@@ -17,3 +17,8 @@ temp/
 # ========== SYSTEM ==========
 .DS_Store
 Thumbs.db
+
+# ========== SOUNDS ==========
+sounds/
+sounds/*.mp3
+sounds/*.wav
