@@ -14,11 +14,15 @@ config/soundCounts.json
 # ========== TEMP ==========
 temp/
 
+# ========== SOUNDS ==========
+# Ignore all sound files but keep the directory structure
+sounds/*.mp3
+sounds/*.wav
+sounds/*.ogg
+# Keep README and placeholder files
+!sounds/README.md
+!sounds/.gitkeep
+
 # ========== SYSTEM ==========
 .DS_Store
 Thumbs.db
-
-# ========== SOUNDS ==========
-sounds/
-sounds/*.mp3
-sounds/*.wav
