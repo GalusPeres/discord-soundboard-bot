@@ -11,11 +11,13 @@
   "author": "galusperes",
   "license": "ISC",
   "dependencies": {
-    "@discordjs/voice": "^0.16.1",
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "^0.19.0",
+    "@snazzah/davey": "^0.1.7",
     "archiver": "^7.0.1",
     "discord.js": "^14.19.3",
     "ffmpeg-static": "^5.2.0",
-    "libsodium-wrappers": "^0.7.13"
+    "libsodium-wrappers": "^0.7.15"
   },
   "devDependencies": {
     "eslint": "^8.55.0"
