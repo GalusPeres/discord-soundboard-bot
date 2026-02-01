@@ -24,6 +24,11 @@ client.once('ready', () => {
 client.on('messageCreate', messageHandler);
 client.on('interactionCreate', buttonHandler);
 
+// Voice State Update - Auto-Leave wenn Channel leer
+client.on('voiceStateUpdate', (oldState, newState) => {
+    audioService.handleVoiceStateUpdate(oldState, newState, client);
+});
+
 // Audio Player Events Setup
 audioService.setupAudioEvents();
 

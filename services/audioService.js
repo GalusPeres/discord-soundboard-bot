@@ -13,6 +13,8 @@ class AudioService {
         this.connection = null;
         this.lastChannelId = null;
         this.lastGuildId = null;
+        this.leaveTimeout = null;
+        this.leaveDelay = 30000; // 30 Sekunden Verzögerung
     }
 
     setupAudioEvents() {
@@ -109,36 +111,50 @@ class AudioService {
 
     // ========== NEUE METHODEN FÜR BESSERES EMBED-HANDLING ==========
     handleSoundFinished() {
+        // Wenn gerade ein neuer Sound startet (buffering/playing), ignoriere dieses Idle-Event
+        const playerStatus = this.player.state.status;
+        if (playerStatus === AudioPlayerStatus.Buffering || playerStatus === AudioPlayerStatus.Playing) {
+            console.log(`🏁 [EMBED] Sound beendet aber neuer Sound startet bereits (${playerStatus}) - ignoriere`);
+            return;
+        }
+
         console.log('🏁 [EMBED] Sound beendet - räume auf...');
-        
+
         const currentSound = stateManager.getCurrentPlayingFileName();
         console.log(`🏁 [EMBED] Beendeter Sound: "${currentSound}"`);
-        
+
         // State zurücksetzen
         stateManager.setCurrentPlayingFileName('');
-        
+
         const state = stateManager.getSoundboardState();
         console.log(`🏁 [EMBED] Aktueller State: inHelpMenu=${state.inHelpMenu}, inSoundboardMenu=${state.inSoundboardMenu}, inTop20Menu=${state.inTop20Menu}`);
-        
+
         if (!state.inHelpMenu) {
             this.updateEmbedWithIdleStatus();
         }
-        
-        // Backup-Timer für hängende Embeds
+
+        // Backup-Timer für hängende Embeds - nur wenn wirklich idle
         setTimeout(() => {
             this.forceIdleUpdate();
         }, 2000);
     }
 
     forceIdleUpdate() {
+        // Wenn gerade ein Sound läuft, kein Idle-Update
+        const playerStatus = this.player.state.status;
+        if (playerStatus === AudioPlayerStatus.Buffering || playerStatus === AudioPlayerStatus.Playing) {
+            console.log(`🚨 [EMBED] Force Idle Update übersprungen - Sound läuft (${playerStatus})`);
+            return;
+        }
+
         console.log('🚨 [EMBED] Force Idle Update - erzwinge Status-Reset');
-        
+
         const currentInteraction = stateManager.getCurrentInteraction();
         if (!currentInteraction) {
             console.log('⚠️ [EMBED] Keine aktuelle Interaction für Force Update');
             return;
         }
-        
+
         const state = stateManager.getSoundboardState();
         let updatedEmbed;
         
@@ -182,6 +198,20 @@ class AudioService {
         const isMessage = context.constructor.name === 'Message';
         stateManager.setCurrentPlayingFileName(soundName);
         stateManager.setCurrentlyPlayingSound(soundName);
+
+        // Stelle sicher dass der Menu-State gesetzt ist (für alte Embeds nach Bot-Neustart)
+        if (!isMessage) {
+            const state = stateManager.getSoundboardState();
+            if (!state.inTop20Menu && !state.inSoundboardMenu) {
+                if (fromSoundboard) {
+                    stateManager.updateSoundboardState({ inTop20Menu: false, inSoundboardMenu: true, inHelpMenu: false });
+                    console.log('🔧 [STATE] Menu-State auf Soundboard gesetzt (war unbekannt)');
+                } else {
+                    stateManager.updateSoundboardState({ inTop20Menu: true, inSoundboardMenu: false, inHelpMenu: false });
+                    console.log('🔧 [STATE] Menu-State auf Top 10 gesetzt (war unbekannt)');
+                }
+            }
+        }
 
         // Erweiterte Logging
         const berlinTime = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
@@ -259,10 +289,17 @@ class AudioService {
 
     async playSoundWithoutCounting(interaction, soundName) {
         const soundFilePath = path.join(SOUNDS_DIR, `${soundName}.mp3`);
-        
+
         stateManager.setCurrentInteraction(interaction);
         stateManager.setCurrentPlayingFileName(soundName);
         stateManager.setCurrentlyPlayingSound(soundName);
+
+        // Stelle sicher dass der Menu-State gesetzt ist (für alte Embeds nach Bot-Neustart)
+        const state = stateManager.getSoundboardState();
+        if (!state.inTop20Menu && !state.inSoundboardMenu) {
+            stateManager.updateSoundboardState({ inTop20Menu: true, inSoundboardMenu: false, inHelpMenu: false });
+            console.log('🔧 [STATE] Menu-State auf Top 10 gesetzt (war unbekannt)');
+        }
 
         console.log(`🎵 [SOUND] ${interaction.user.tag} möchte "${soundName}" abspielen (ohne Zählung)`);
 
@@ -313,6 +350,9 @@ class AudioService {
         const channelId = channel.id;
         const guildId = channel.guild.id;
         const channelName = channel.name;
+
+        // Lösche eventuellen Leave-Timeout da ein neuer Sound gespielt wird
+        this.clearLeaveTimeout();
 
         // Prüfe ob neue Connection benötigt wird
         const needsNewConnection = !this.connection || 
@@ -444,6 +484,7 @@ class AudioService {
 
     async disconnect() {
         console.log('🔌 [DISCONNECT] Disconnect-Befehl erhalten');
+        this.clearLeaveTimeout();
         if (this.connection) {
             const channelInfo = this.lastChannelId ? `von Channel ${this.lastChannelId}` : '';
             console.log(`🔌 [DISCONNECT] Trenne Connection ${channelInfo}`);
@@ -455,6 +496,64 @@ class AudioService {
             this.logToFile('[DISCONNECT] Manual disconnect executed');
         } else {
             console.log('ℹ️ [DISCONNECT] Keine aktive Connection zum Trennen');
+        }
+    }
+
+    // ========== AUTO-LEAVE WENN CHANNEL LEER ==========
+    clearLeaveTimeout() {
+        if (this.leaveTimeout) {
+            clearTimeout(this.leaveTimeout);
+            this.leaveTimeout = null;
+            console.log('⏱️ [AUTO-LEAVE] Timeout gelöscht');
+        }
+    }
+
+    checkChannelAndScheduleLeave(channel) {
+        if (!this.connection || !channel) {
+            return;
+        }
+
+        // Zähle nur echte User (keine Bots)
+        const realUsers = channel.members.filter(member => !member.user.bot);
+        const realUserCount = realUsers.size;
+
+        console.log(`👥 [AUTO-LEAVE] Channel "${channel.name}" hat ${realUserCount} echte User`);
+
+        if (realUserCount === 0) {
+            // Keine echten User mehr - starte Leave-Timer
+            if (!this.leaveTimeout) {
+                console.log(`⏱️ [AUTO-LEAVE] Starte ${this.leaveDelay / 1000}s Timer zum Verlassen...`);
+                this.logToFile(`[AUTO-LEAVE] No real users in channel, starting ${this.leaveDelay / 1000}s leave timer`);
+
+                this.leaveTimeout = setTimeout(() => {
+                    console.log('👋 [AUTO-LEAVE] Zeit abgelaufen - verlasse Channel');
+                    this.logToFile('[AUTO-LEAVE] Timer expired, leaving channel');
+                    this.disconnect();
+                }, this.leaveDelay);
+            }
+        } else {
+            // Es sind noch echte User da - Timeout löschen falls vorhanden
+            this.clearLeaveTimeout();
+        }
+    }
+
+    handleVoiceStateUpdate(oldState, newState, client) {
+        // Prüfe ob der Bot in einem Channel ist
+        if (!this.connection || !this.lastChannelId) {
+            return;
+        }
+
+        // Prüfe ob das Event unseren Channel betrifft
+        const botChannelId = this.lastChannelId;
+
+        // User hat unseren Channel verlassen oder ist rein gekommen
+        if (oldState.channelId === botChannelId || newState.channelId === botChannelId) {
+            const guild = oldState.guild || newState.guild;
+            const channel = guild.channels.cache.get(botChannelId);
+
+            if (channel) {
+                this.checkChannelAndScheduleLeave(channel);
+            }
         }
     }
 

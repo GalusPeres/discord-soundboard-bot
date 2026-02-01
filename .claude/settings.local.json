@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Auto-Leave wenn Voice Channel leer + Sound-Wechsel Fix\n\n- Bot verlässt Voice Channel automatisch nach 30s wenn keine echten User mehr da sind \\(Bots zählen nicht\\)\n- Fix für schnellen Sound-Wechsel: Idle-Events werden ignoriert wenn neuer Sound bereits startet\n- Automatische State-Rekonstruktion für alte Embeds nach Bot-Neustart\n- Version 3.1.0\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+    ]
+  }
+}

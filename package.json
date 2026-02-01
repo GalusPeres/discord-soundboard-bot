@@ -1,6 +1,6 @@
 {
   "name": "discord_soundboard_bot_modular",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Modularer Discord Soundboard Bot - Sauber organisiert",
   "main": "bot.js",
   "scripts": {
