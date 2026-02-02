@@ -1,8 +1,8 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
-const { EmbedBuilder } = require('discord.js');
+const { MessageFlags } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { SOUNDS_DIR, SOUND_LOGS_PATH, GIF_URL } = require('../utils/constants');
+const { SOUNDS_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
 const soundUtils = require('../utils/soundUtils');
 const embedUtils = require('../utils/embedUtils');
 const stateManager = require('../utils/stateManager');
@@ -163,22 +163,24 @@ class AudioService {
         }
 
         const state = stateManager.getSoundboardState();
-        let updatedEmbed;
+        let statusTitle;
         
         if (state.inSoundboardMenu) {
             const totalPages = soundUtils.getTotalPages();
-            updatedEmbed = embedUtils.createStatusEmbed(`A - Z | Seite ${state.currentPageIndex + 1} von ${totalPages}`);
+            statusTitle = "## A - Z";
             console.log(`🚨 [EMBED] Force Update für Soundboard-Menü (Seite ${state.currentPageIndex + 1})`);
         } else if (state.inTop20Menu) {
-            updatedEmbed = embedUtils.createStatusEmbed("Menü | Top 10");
+            statusTitle = "## Übersicht";
             console.log('🚨 [EMBED] Force Update für Top 10 Menü');
         } else {
             console.log('🚨 [EMBED] Unbekannter Menu-State für Force Update');
             return;
         }
         
-        if (updatedEmbed && (currentInteraction.replied || currentInteraction.deferred)) {
-            currentInteraction.editReply({ embeds: [updatedEmbed] })
+        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
+            const extras = this.getCurrentMenuExtras(currentInteraction.message);
+            const components = embedUtils.createStatusComponents(statusTitle, true, extras);
+            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
                 .then(() => {
                     console.log('✅ [EMBED] Force Update erfolgreich');
                 })
@@ -279,19 +281,16 @@ class AudioService {
         if (sendReply) {
             const state = stateManager.getSoundboardState();
             const embedTitle = fromSoundboard 
-                ? `A - Z | Seite ${state.currentPageIndex + 1} von ${soundUtils.getTotalPages()}`
-                : "Menü | Top 10";
+                ? "## A - Z"
+                : "## Übersicht";
             
-            const updatedEmbed = new EmbedBuilder()
-                .setColor(0x00AE86)
-                .setTitle(embedTitle)
-                .setDescription(`🔊 ${soundName} wird abgespielt...`)
-                .setThumbnail(GIF_URL);
+            const extras = this.getCurrentMenuExtras(isMessage ? null : context.message);
+            const components = embedUtils.createStatusComponents(embedTitle, false, extras);
 
             if (isMessage) {
-                await context.reply({ embeds: [updatedEmbed] });
+                await context.reply({ components, flags: MessageFlags.IsComponentsV2 });
             } else {
-                await context.update({ embeds: [updatedEmbed] });
+                await context.update({ components, flags: MessageFlags.IsComponentsV2 });
             }
         }
         
@@ -550,6 +549,22 @@ class AudioService {
                 this.logToFile(`[AUTO-LEAVE] No real users in channel, starting ${this.leaveDelay / 1000}s leave timer`);
 
                 this.leaveTimeout = setTimeout(() => {
+                    this.leaveTimeout = null;
+                    const currentChannel = channel.guild.channels.cache.get(channel.id);
+                    if (!currentChannel) {
+                        console.log('👋 [AUTO-LEAVE] Channel nicht gefunden - verlasse Channel');
+                        this.logToFile('[AUTO-LEAVE] Channel missing, leaving channel');
+                        this.disconnect();
+                        return;
+                    }
+
+                    const currentRealUsers = currentChannel.members.filter(member => !member.user.bot).size;
+                    if (currentRealUsers > 0) {
+                        console.log(`✅ [AUTO-LEAVE] User wieder da (${currentRealUsers}) - bleibe im Channel`);
+                        this.logToFile(`[AUTO-LEAVE] Users rejoined (${currentRealUsers}), staying in channel`);
+                        return;
+                    }
+
                     console.log('👋 [AUTO-LEAVE] Zeit abgelaufen - verlasse Channel');
                     this.logToFile('[AUTO-LEAVE] Timer expired, leaving channel');
                     this.disconnect();
@@ -588,6 +603,32 @@ class AudioService {
         fs.appendFileSync(SOUND_LOGS_PATH, logEntry + "\n", 'utf8');
     }
 
+    getCurrentMenuExtras(message) {
+        if (message && message.id) {
+            const stored = stateManager.getMessageState(message.id);
+            if (stored && Array.isArray(stored.components) && stored.components.length > 0) {
+                return stored.components;
+            }
+        }
+        const extras = stateManager.getCurrentComponents();
+        if (Array.isArray(extras) && extras.length > 0) {
+            return extras;
+        }
+        return embedUtils.getExtraComponentsFromMessage(message);
+    }
+
+    getMenuTitle(menuType) {
+        switch (menuType) {
+            case 'az':
+                return "## A - Z";
+            case 'help':
+                return "## Hilfe";
+            case 'overview':
+            default:
+                return "## Übersicht";
+        }
+    }
+
     // ========== VERBESSERTE UPDATE-METHODEN ==========
     updateEmbedWithPlayingStatus() {
         const currentInteraction = stateManager.getCurrentInteraction();
@@ -605,31 +646,27 @@ class AudioService {
             return;
         }
 
-        let updatedEmbed;
+        let statusTitle;
         const state = stateManager.getSoundboardState();
 
         if (state.inSoundboardMenu) {
-            const totalPages = soundUtils.getTotalPages();
-            updatedEmbed = new EmbedBuilder()
-                .setColor(0x00AE86)
-                .setTitle(`A - Z | Seite ${state.currentPageIndex + 1} von ${totalPages}`)
-                .setDescription(`🔊 ${currentPlayingFileName} wird abgespielt...`)
-                .setThumbnail(GIF_URL);
+            statusTitle = "## A - Z";
             console.log(`🎵 [EMBED] Playing Update für Soundboard (Sound: ${currentPlayingFileName})`);
         } else if (state.inTop20Menu) {
-            updatedEmbed = new EmbedBuilder()
-                .setColor(0x00AE86)
-                .setTitle("Menü | Top 10")
-                .setDescription(`🔊 ${currentPlayingFileName} wird abgespielt...`)
-                .setThumbnail(GIF_URL);
-            console.log(`🎵 [EMBED] Playing Update für Top 10 (Sound: ${currentPlayingFileName})`);
+            statusTitle = "## Übersicht";
+            console.log(`🎵 [EMBED] Playing Update für Übersicht (Sound: ${currentPlayingFileName})`);
+        } else if (state.inHelpMenu) {
+            statusTitle = "## Hilfe";
+            console.log(`🎵 [EMBED] Playing Update für Hilfe (Sound: ${currentPlayingFileName})`);
         } else {
             console.log('⚠️ [EMBED] Unbekannter Menu-State für Playing Update');
             return;
         }
 
-        if (updatedEmbed && (currentInteraction.replied || currentInteraction.deferred)) {
-            currentInteraction.editReply({ embeds: [updatedEmbed] })
+        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
+            const extras = this.getCurrentMenuExtras(currentInteraction.message);
+            const components = embedUtils.createStatusComponents(statusTitle, false, extras);
+            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
                 .then(() => {
                     console.log('✅ [EMBED] Playing Status Update erfolgreich');
                 })
@@ -650,23 +687,25 @@ class AudioService {
             return;
         }
 
-        let updatedEmbed;
+        let statusTitle;
         const state = stateManager.getSoundboardState();
 
         if (state.inSoundboardMenu) {
             const totalPages = soundUtils.getTotalPages();
-            updatedEmbed = embedUtils.createStatusEmbed(`A - Z | Seite ${state.currentPageIndex + 1} von ${totalPages}`);
+            statusTitle = "## A - Z";
             console.log(`💤 [EMBED] Idle Update für Soundboard (Seite ${state.currentPageIndex + 1})`);
         } else if (state.inTop20Menu) {
-            updatedEmbed = embedUtils.createStatusEmbed("Menü | Top 10");
+            statusTitle = "## Übersicht";
             console.log('💤 [EMBED] Idle Update für Top 10');
         } else {
             console.log('⚠️ [EMBED] Unbekannter Menu-State für Idle Update');
             return;
         }
 
-        if (updatedEmbed && (currentInteraction.replied || currentInteraction.deferred)) {
-            currentInteraction.editReply({ embeds: [updatedEmbed] })
+        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
+            const extras = this.getCurrentMenuExtras(currentInteraction.message);
+            const components = embedUtils.createStatusComponents(statusTitle, true, extras);
+            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
                 .then(() => {
                     console.log('✅ [EMBED] Idle Status Update erfolgreich - Animation gestoppt');
                 })

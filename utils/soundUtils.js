@@ -64,7 +64,7 @@ class SoundUtils {
             });
 
         soundFiles.sort((a, b) => b.mtime - a.mtime);
-        return soundFiles.slice(0, 9).map(file => path.basename(file.name, '.mp3'));
+        return soundFiles.slice(0, 10).map(file => path.basename(file.name, '.mp3'));
     }
 
     updateSoundCount(filePath) {

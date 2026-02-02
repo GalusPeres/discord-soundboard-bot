@@ -3,9 +3,16 @@ const downloadCommands = require('../commands/downloadCommands');
 const soundCommands = require('../commands/soundCommands');
 
 async function handleButtonInteraction(interaction) {
-    if (!interaction.isButton()) return;
+    const isButton = interaction.isButton();
+    const isSelectMenu = interaction.isStringSelectMenu();
+    if (!isButton && !isSelectMenu) return;
 
     try {
+        if (isSelectMenu) {
+            await soundCommands.handleSelectMenuInteraction(interaction);
+            return;
+        }
+
         const customId = interaction.customId;
 
         // Upload Buttons

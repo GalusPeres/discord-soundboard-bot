@@ -48,7 +48,17 @@ async function handleMessage(message) {
         }
 
         // Sound Commands
-        const reservedCommands = [`${prefix}help`, `${prefix}hilfe`, `${prefix}stop`, `${prefix}stopp`, `${prefix}reset`, `${prefix}upload`, `${prefix}download`, `${prefix}9`, `${prefix}nippel`];
+        const reservedCommands = [
+            `${prefix}help`,
+            `${prefix}hilfe`,
+            `${prefix}stop`,
+            `${prefix}stopp`,
+            `${prefix}reset`,
+            `${prefix}upload`,
+            `${prefix}download`,
+            `${prefix}9`,
+            `${prefix}nippel`
+        ];
         if (content.startsWith(prefix) && !reservedCommands.includes(content)) {
             await soundCommands.handleSoundCommand(message, content);
         }

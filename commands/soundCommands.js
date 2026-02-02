@@ -1,4 +1,4 @@
-const { EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle } = require('discord.js');
+const { ButtonBuilder, ActionRowBuilder, ButtonStyle, ComponentType, MessageFlags, StringSelectMenuBuilder } = require('discord.js');
 const audioService = require('../services/audioService');
 const soundUtils = require('../utils/soundUtils');
 const embedUtils = require('../utils/embedUtils');
@@ -17,10 +17,11 @@ class SoundCommands {
         await audioService.stopSound();
         
         const state = stateManager.getSoundboardState();
-        if (state.inSoundboardMenu && stateManager.getCurrentInteraction()) {
+        const currentInteraction = stateManager.getCurrentInteraction();
+        if (state.inSoundboardMenu && currentInteraction) {
             try {
-                const embed = embedUtils.createStatusEmbed("Sound gestoppt", false);
-                await stateManager.getCurrentInteraction().editReply({ embeds: [embed] });
+                const components = embedUtils.buildStatusComponentsFromMessage("Sound gestoppt", true, currentInteraction.message);
+                await currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 });
             } catch (error) {
                 console.error('Fehler beim Aktualisieren der Antwort:', error);
             }
@@ -38,21 +39,52 @@ class SoundCommands {
 
         const favoriteSounds = soundUtils.getFavoriteSounds().slice(0, 10);
         const newestSounds = soundUtils.getNewestSounds();
-        const actionRows = this.createMainMenuRows(favoriteSounds, newestSounds);
+        const { favoriteRows, newestRows, navigationRow } = this.createMainMenuRows(favoriteSounds, newestSounds);
 
-        const mainMenuEmbed = embedUtils.createStatusEmbed("Menü | Top 10");
+        const extraComponents = [];
+        if (favoriteRows.length > 0) {
+            extraComponents.push({ type: ComponentType.TextDisplay, content: '### Top 10' }, ...favoriteRows);
+        }
+
+        if (newestRows.length > 0) {
+            if (extraComponents.length > 0) {
+                extraComponents.push({ type: ComponentType.Separator });
+            }
+            extraComponents.push({ type: ComponentType.TextDisplay, content: '### Neu' }, ...newestRows);
+        }
+
+        if (navigationRow) {
+            if (extraComponents.length > 0) {
+                extraComponents.push({ type: ComponentType.Separator });
+            }
+            extraComponents.push(navigationRow);
+        }
+
+        const currentSound = stateManager.getCurrentPlayingFileName();
+        const isPlaying = Boolean(currentSound);
+        stateManager.setCurrentComponents(extraComponents);
+        const statusComponents = embedUtils.createStatusComponents("## Übersicht", !isPlaying, extraComponents);
         const replyOptions = { 
-            embeds: [mainMenuEmbed], 
-            components: actionRows, 
-            allowedMentions: { parse: [] } 
+            components: statusComponents, 
+            allowedMentions: { parse: [] },
+            flags: MessageFlags.IsComponentsV2
         };
 
+        let messageRef = null;
         if (interaction.deferred || interaction.replied) {
-            await interaction.editReply(replyOptions);
+            messageRef = await interaction.editReply(replyOptions);
         } else if (interaction.update) {
             await interaction.update(replyOptions);
+            messageRef = interaction.message;
+        } else if (interaction.fetchReply) {
+            await interaction.reply({ ...replyOptions, fetchReply: true });
+            messageRef = await interaction.fetchReply();
         } else {
-            await interaction.reply(replyOptions);
+            messageRef = await interaction.reply(replyOptions);
+        }
+
+        if (messageRef) {
+            stateManager.setMessageState(messageRef, 'overview', extraComponents);
         }
     }
 
@@ -63,18 +95,37 @@ class SoundCommands {
             inHelpMenu: false,
             currentPageIndex: pageIndex
         });
+        stateManager.currentPageIndex = pageIndex;
 
         const soundboardButtons = soundUtils.getSoundboardButtons();
         const paginatedButtons = soundUtils.paginateButtons(soundboardButtons);
         const totalPages = Math.ceil(paginatedButtons.length);
         
-        const soundboardEmbed = embedUtils.createStatusEmbed(`A - Z | Seite ${pageIndex + 1} von ${totalPages}`);
         const currentPageButtons = paginatedButtons[pageIndex] || [];
         const rows = this.createButtonRows(currentPageButtons, 5);
         const navigationRow = this.createNavigationRow(pageIndex, paginatedButtons.length);
-        rows.push(navigationRow);
+        const pageSelectRow = this.createPageSelectRow(pageIndex, totalPages);
+        const divider = { type: ComponentType.Separator };
+        const pageInfo = `### Seite ${pageIndex + 1} von ${totalPages}`;
+        const extraComponents = [];
+        if (pageSelectRow) {
+            extraComponents.push(pageSelectRow);
+        } else {
+            extraComponents.push({ type: ComponentType.TextDisplay, content: pageInfo });
+        }
+        extraComponents.push(...rows, divider, navigationRow);
+        const currentSound = stateManager.getCurrentPlayingFileName();
+        const isPlaying = Boolean(currentSound);
+        stateManager.setCurrentComponents(extraComponents);
+        const statusComponents = embedUtils.createStatusComponents("## A - Z", !isPlaying, extraComponents);
 
-        await interaction.update({ embeds: [soundboardEmbed], components: rows });
+        await interaction.update({
+            components: statusComponents,
+            flags: MessageFlags.IsComponentsV2
+        });
+        if (interaction.message) {
+            stateManager.setMessageState(interaction.message, 'az', extraComponents);
+        }
     }
 
     async sendHelpMenu(interaction, page) {
@@ -87,22 +138,48 @@ class SoundCommands {
         
         const { codeBlock, totalPages } = soundUtils.getPaginatedSoundsList(page, 60);
 
-        const helpEmbed = new EmbedBuilder()
-            .setColor(0x00AE86)
-            .setTitle(`Hilfe | Seite ${page} von ${totalPages}`)
-            .setDescription('Hier finden Sie eine Übersicht über unsere Soundclips.\n\n' + codeBlock);
-
+        const helpDescription = 'Hier finden Sie eine Übersicht über unsere Soundclips.';
+        const helpPageInfo = `### Seite ${page} von ${totalPages}\n${codeBlock}`;
+        const helpPageSelectRow = this.createHelpPageSelectRow(page, totalPages);
         const paginationButtons = this.createPaginationButtons(page, totalPages);
+        const extraComponents = [];
+        if (helpPageSelectRow) {
+            extraComponents.push(helpPageSelectRow);
+            extraComponents.push({ type: ComponentType.TextDisplay, content: codeBlock });
+        } else {
+            extraComponents.push({ type: ComponentType.TextDisplay, content: helpPageInfo });
+        }
+        extraComponents.push({ type: ComponentType.Separator }, ...paginationButtons);
+        stateManager.setCurrentComponents(extraComponents);
+        const statusComponents = embedUtils.createStatusComponents(
+            '## Hilfe',
+            true,
+            extraComponents,
+            helpDescription
+        );
         const update = {
-            embeds: [helpEmbed],
-            components: paginationButtons,
-            allowedMentions: { parse: [] }
+            components: statusComponents,
+            allowedMentions: { parse: [] },
+            flags: MessageFlags.IsComponentsV2
         };
         
-        if (interaction.deferred || interaction.replied) {
-            await interaction.editReply(update);
+        let messageRef = null;
+        const isComponentInteraction = typeof interaction.isButton === 'function'
+            && (interaction.isButton() || interaction.isStringSelectMenu());
+
+        if (isComponentInteraction && !interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+            await interaction.update(update);
+            messageRef = interaction.message;
+        } else if (interaction.deferred || interaction.replied) {
+            messageRef = await interaction.editReply(update);
+        } else if (interaction.fetchReply) {
+            await interaction.reply({ ...update, fetchReply: true });
+            messageRef = await interaction.fetchReply();
         } else {
-            await interaction.reply({ ...update, allowedMentions: { parse: [] } });
+            messageRef = await interaction.reply({ ...update, allowedMentions: { parse: [] } });
+        }
+        if (messageRef) {
+            stateManager.setMessageState(messageRef, 'help', extraComponents);
         }
     }
 
@@ -138,6 +215,31 @@ class SoundCommands {
         }
     }
 
+    async handleSelectMenuInteraction(interaction) {
+        const rawValue = interaction.values?.[0] ?? '';
+        const pageNumber = parseInt(rawValue.replace('page_', ''), 10);
+        
+        if (interaction.customId === 'soundboard_page_select') {
+            if (Number.isNaN(pageNumber)) {
+                await interaction.deferUpdate();
+                return;
+            }
+            await this.sendSoundboardMenu(interaction, Math.max(0, pageNumber - 1));
+            return;
+        }
+
+        if (interaction.customId === 'help_page_select') {
+            if (Number.isNaN(pageNumber)) {
+                await interaction.deferUpdate();
+                return;
+            }
+            await this.sendHelpMenu(interaction, Math.max(1, pageNumber));
+            return;
+        }
+
+        await interaction.deferUpdate();
+    }
+
     async handleNavigationButtons(customId, interaction) {
         switch (customId) {
             case 'soundboard':
@@ -165,8 +267,8 @@ class SoundCommands {
     async handleDisconnect(interaction) {
         await audioService.disconnect();
 
-        const updatedEmbed = embedUtils.createStatusEmbed("Menü | Top 10");
-        await interaction.update({ embeds: [updatedEmbed] });
+        const components = embedUtils.buildStatusComponentsFromMessage("Übersicht", true, interaction.message);
+        await interaction.update({ components, flags: MessageFlags.IsComponentsV2 });
 
         const message = await interaction.followUp({ content: 'Bot getrennt.' });
         setTimeout(() => {
@@ -178,7 +280,7 @@ class SoundCommands {
 
     // Helper Methods
     createMainMenuRows(favoriteSounds, newestSounds) {
-        const actionRows = [];
+        const favoriteRows = [];
 
         // Favorite Buttons
         if (favoriteSounds.length > 0) {
@@ -191,15 +293,15 @@ class SoundCommands {
             }).filter(btn => btn.data.label);
 
             if (favoriteButtons.length > 0) {
-                actionRows.push(new ActionRowBuilder().addComponents(favoriteButtons.slice(0, 5)));
+                favoriteRows.push(new ActionRowBuilder().addComponents(favoriteButtons.slice(0, 5)));
                 if (favoriteButtons.length > 5) {
-                    actionRows.push(new ActionRowBuilder().addComponents(favoriteButtons.slice(5, 10)));
+                    favoriteRows.push(new ActionRowBuilder().addComponents(favoriteButtons.slice(5, 10)));
                 }
             }
         }
 
         // Newest Buttons
-        const newestButtons = newestSounds.map((soundName, index) => {
+        const newestButtons = newestSounds.slice(0, 10).map((soundName, index) => {
             const safeSoundName = soundName || `sound${index}`;
             return new ButtonBuilder()
                 .setCustomId(`newest_play_sound_${safeSoundName}_${index}`)
@@ -207,16 +309,11 @@ class SoundCommands {
                 .setStyle(ButtonStyle.Success);
         }).filter(btn => btn.data.label);
 
-        const newestSeparator = new ButtonBuilder()
-            .setCustomId(`newest_separator`)
-            .setLabel('Neu →')
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(true);
-
+        const newestRows = [];
         if (newestButtons.length > 0) {
-            actionRows.push(new ActionRowBuilder().addComponents(newestSeparator, ...newestButtons.slice(0, 4)));
-            if (newestButtons.length > 4) {
-                actionRows.push(new ActionRowBuilder().addComponents(...newestButtons.slice(4, Math.min(newestButtons.length, 9))));
+            newestRows.push(new ActionRowBuilder().addComponents(newestButtons.slice(0, 5)));
+            if (newestButtons.length > 5) {
+                newestRows.push(new ActionRowBuilder().addComponents(newestButtons.slice(5, 10)));
             }
         }
 
@@ -228,9 +325,8 @@ class SoundCommands {
             new ButtonBuilder().setCustomId('sound_stop').setLabel('Stopp').setStyle(ButtonStyle.Danger),
             new ButtonBuilder().setCustomId('disconnect').setLabel('X').setStyle(ButtonStyle.Danger)
         );
-        actionRows.push(navigationRow);
 
-        return actionRows;
+        return { favoriteRows, newestRows, navigationRow };
     }
 
     createButtonRows(buttons, buttonsPerRow) {
@@ -249,12 +345,71 @@ class SoundCommands {
 
     createNavigationRow(currentPageIndex, totalPages) {
         const navigationButtons = [
-            new ButtonBuilder().setCustomId('back-to-main').setLabel('Menü').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('back-to-main').setLabel('Übersicht').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('previous-page').setLabel('←').setStyle(ButtonStyle.Primary).setDisabled(currentPageIndex === 0),
             new ButtonBuilder().setCustomId('next-page').setLabel('→').setStyle(ButtonStyle.Primary).setDisabled(currentPageIndex >= totalPages - 1),
             new ButtonBuilder().setCustomId('sound_stop').setLabel('Stopp').setStyle(ButtonStyle.Danger)
         ];
         return new ActionRowBuilder().addComponents(navigationButtons);
+    }
+
+    createPageSelectRow(currentPageIndex, totalPages) {
+        if (totalPages <= 1) {
+            return null;
+        }
+
+        const maxOptions = 25;
+        const currentPage = currentPageIndex + 1;
+        let start = Math.max(1, currentPage - Math.floor(maxOptions / 2));
+        let end = Math.min(totalPages, start + maxOptions - 1);
+        start = Math.max(1, end - maxOptions + 1);
+
+        const options = [];
+        for (let page = start; page <= end; page++) {
+            options.push({
+                label: `Seite ${page}`,
+                value: `page_${page}`,
+                default: page === currentPage
+            });
+        }
+
+        const select = new StringSelectMenuBuilder()
+            .setCustomId('soundboard_page_select')
+            .setPlaceholder(`Seite ${currentPage} von ${totalPages}`)
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(options);
+
+        return new ActionRowBuilder().addComponents(select);
+    }
+
+    createHelpPageSelectRow(currentPage, totalPages) {
+        if (totalPages <= 1) {
+            return null;
+        }
+
+        const maxOptions = 25;
+        let start = Math.max(1, currentPage - Math.floor(maxOptions / 2));
+        let end = Math.min(totalPages, start + maxOptions - 1);
+        start = Math.max(1, end - maxOptions + 1);
+
+        const options = [];
+        for (let page = start; page <= end; page++) {
+            options.push({
+                label: `Seite ${page}`,
+                value: `page_${page}`,
+                default: page === currentPage
+            });
+        }
+
+        const select = new StringSelectMenuBuilder()
+            .setCustomId('help_page_select')
+            .setPlaceholder(`Seite ${currentPage} von ${totalPages}`)
+            .setMinValues(1)
+            .setMaxValues(1)
+            .addOptions(options);
+
+        return new ActionRowBuilder().addComponents(select);
     }
 
     createPaginationButtons(currentPage, totalPages) {
@@ -272,7 +427,7 @@ class SoundCommands {
 
         const menuButton = new ButtonBuilder()
             .setCustomId('main_menu')
-            .setLabel('Menü')
+            .setLabel('Übersicht')
             .setStyle(ButtonStyle.Primary);
 
         return [new ActionRowBuilder().addComponents(menuButton, prevButton, nextButton)];
