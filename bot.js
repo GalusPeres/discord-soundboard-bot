@@ -16,7 +16,7 @@ const client = new Client({
 });
 
 // Bot Events
-client.once('ready', () => {
+client.once('clientReady', () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
     initializeBot();
 });
