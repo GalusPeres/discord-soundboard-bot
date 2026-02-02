@@ -1,4 +1,4 @@
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
 const { EmbedBuilder } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
@@ -9,12 +9,19 @@ const stateManager = require('../utils/stateManager');
 
 class AudioService {
     constructor() {
-        this.player = createAudioPlayer();
+        this.player = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Play, // Weiterspielen auch ohne Subscriber
+                maxMissedFrames: 250 // Mehr Toleranz für verpasste Frames (Standard: 5)
+            }
+        });
         this.connection = null;
         this.lastChannelId = null;
         this.lastGuildId = null;
         this.leaveTimeout = null;
         this.leaveDelay = 30000; // 30 Sekunden Verzögerung
+        this.soundsPlayedSinceConnect = 0;
+        this.maxSoundsBeforeReconnect = 20; // Reconnect alle 20 Sounds gegen akkumulierte Verzögerung
     }
 
     setupAudioEvents() {
@@ -260,9 +267,13 @@ class AudioService {
         }
 
         console.log(`🚀 [AUDIO] Starte Wiedergabe: ${soundName}`);
-        const resource = createAudioResource(soundFilePath);
+        const resource = createAudioResource(soundFilePath, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: false
+        });
         this.player.play(resource);
         this.connection.subscribe(this.player);
+        this.soundsPlayedSinceConnect++;
 
         // Send reply if requested
         if (sendReply) {
@@ -330,9 +341,13 @@ class AudioService {
 
         try {
             console.log(`🚀 [AUDIO] Starte Wiedergabe: ${soundName} (ohne Zählung)`);
-            const resource = createAudioResource(soundFilePath);
+            const resource = createAudioResource(soundFilePath, {
+                inputType: StreamType.Arbitrary,
+                inlineVolume: false
+            });
             this.player.play(resource);
             this.connection.subscribe(this.player);
+            this.soundsPlayedSinceConnect++;
 
             // Logging
             const berlinTime = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
@@ -354,15 +369,23 @@ class AudioService {
         // Lösche eventuellen Leave-Timeout da ein neuer Sound gespielt wird
         this.clearLeaveTimeout();
 
+        // Prüfe ob Reconnect wegen zu vieler Sounds nötig (gegen akkumulierte Verzögerung)
+        const needsReconnectForPerformance = this.soundsPlayedSinceConnect >= this.maxSoundsBeforeReconnect;
+        if (needsReconnectForPerformance) {
+            console.log(`🔄 [CONNECTION] Performance-Reconnect nach ${this.soundsPlayedSinceConnect} Sounds`);
+            this.soundsPlayedSinceConnect = 0;
+        }
+
         // Prüfe ob neue Connection benötigt wird
-        const needsNewConnection = !this.connection || 
+        const needsNewConnection = !this.connection ||
             this.connection.joinConfig.channelId !== channelId ||
             this.connection.state.status === 'destroyed' ||
             this.connection.state.status === 'disconnected' ||
             this.connection.state.status === 'signalling' ||
             this.connection.state.status === 'connecting' ||  // AUCH CONNECTING!
             this.lastChannelId !== channelId ||
-            this.lastGuildId !== guildId;
+            this.lastGuildId !== guildId ||
+            needsReconnectForPerformance;
 
         if (needsNewConnection) {
             const oldChannelInfo = this.lastChannelId ? `von Channel ${this.lastChannelId}` : 'keine vorherige Connection';
@@ -396,6 +419,7 @@ class AudioService {
             // Speichere aktuelle Channel-Info
             this.lastChannelId = channelId;
             this.lastGuildId = guildId;
+            this.soundsPlayedSinceConnect = 0; // Counter zurücksetzen bei neuer Connection
         }
 
         // KRITISCH: Warte auf READY-Status!
