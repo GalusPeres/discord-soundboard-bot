@@ -3,33 +3,35 @@ const path = require('path');
 const fs = require('fs');
 const soundUtils = require('../utils/soundUtils');
 const zipService = require('../services/zipService');
-const { SOUND_LOGS_PATH } = require('../utils/constants');
+const { SOUND_LOGS_PATH, SOUNDS_DIR, SOUNDS_PER_PAGE, CHUNK_SIZE, COLORS } = require('../utils/constants');
 
 class DownloadCommands {
+    // Helper: Berechnet Ordnergröße und geschätzte Archive
+    _calculateFolderStats() {
+        let totalSize = 0;
+        if (fs.existsSync(SOUNDS_DIR)) {
+            const files = fs.readdirSync(SOUNDS_DIR).filter(f => f.endsWith('.mp3'));
+            totalSize = files.reduce((sum, file) => {
+                const stats = fs.statSync(path.join(SOUNDS_DIR, file));
+                return sum + stats.size;
+            }, 0);
+        }
+        return {
+            totalSize,
+            estimatedArchives: Math.ceil(totalSize / CHUNK_SIZE)
+        };
+    }
+
     async handleDownload(message) {
         try {
-            // DIREKT ERSTE SOUND-SEITE - KEIN AUSWAHLMENÜ!
             const soundButtons = soundUtils.getSoundboardButtons();
-            const soundsPerPageDownload = 20;
-            const totalPages = Math.ceil(soundButtons.length / soundsPerPageDownload);
-            
-            const pageSounds = soundButtons.slice(0, soundsPerPageDownload); // Erste 20 Sounds
-
-            // Berechne Ordner-Größe
-            const { SOUNDS_DIR } = require('../utils/constants');
-            let totalSize = 0;
-            if (fs.existsSync(SOUNDS_DIR)) {
-                const files = fs.readdirSync(SOUNDS_DIR).filter(f => f.endsWith('.mp3'));
-                totalSize = files.reduce((sum, file) => {
-                    const stats = fs.statSync(path.join(SOUNDS_DIR, file));
-                    return sum + stats.size;
-                }, 0);
-            }
-            const estimatedArchives = Math.ceil(totalSize / (9.98 * 1024 * 1024));
+            const totalPages = Math.ceil(soundButtons.length / SOUNDS_PER_PAGE);
+            const pageSounds = soundButtons.slice(0, SOUNDS_PER_PAGE);
+            const { totalSize, estimatedArchives } = this._calculateFolderStats();
 
             // ERSTE SOUND-SEITE EMBED
             const downloadEmbed = new EmbedBuilder()
-                .setColor(0x00AE86)
+                .setColor(COLORS.PRIMARY)
                 .setTitle(`📥 Download | Seite 1 von ${totalPages}`)
                 .setDescription('**Wähle einen Sound oder Alle Sounds**')
                 .addFields(
@@ -114,28 +116,16 @@ class DownloadCommands {
 
     async sendDownloadMenu(messageOrInteraction, pageIndex) {
         const soundButtons = soundUtils.getSoundboardButtons();
-        const soundsPerPageDownload = 20;
-        const totalPages = Math.ceil(soundButtons.length / soundsPerPageDownload);
-        
-        pageIndex = Math.max(0, Math.min(pageIndex, totalPages - 1));
-        
-        const startIndex = pageIndex * soundsPerPageDownload;
-        const pageSounds = soundButtons.slice(startIndex, startIndex + soundsPerPageDownload);
+        const totalPages = Math.ceil(soundButtons.length / SOUNDS_PER_PAGE);
 
-        // Berechne Ordner-Größe für die Infos
-        const { SOUNDS_DIR } = require('../utils/constants');
-        let totalSize = 0;
-        if (fs.existsSync(SOUNDS_DIR)) {
-            const files = fs.readdirSync(SOUNDS_DIR).filter(f => f.endsWith('.mp3'));
-            totalSize = files.reduce((sum, file) => {
-                const stats = fs.statSync(path.join(SOUNDS_DIR, file));
-                return sum + stats.size;
-            }, 0);
-        }
-        const estimatedArchives = Math.ceil(totalSize / (9.98 * 1024 * 1024));
+        pageIndex = Math.max(0, Math.min(pageIndex, totalPages - 1));
+
+        const startIndex = pageIndex * SOUNDS_PER_PAGE;
+        const pageSounds = soundButtons.slice(startIndex, startIndex + SOUNDS_PER_PAGE);
+        const { totalSize, estimatedArchives } = this._calculateFolderStats();
 
         const downloadEmbed = new EmbedBuilder()
-            .setColor(0x00AE86)
+            .setColor(COLORS.PRIMARY)
             .setTitle(`📥 Download | Seite ${pageIndex + 1} von ${totalPages}`)
             .setDescription('**Wähle einen Sound oder Alle Sounds**')
             .addFields(
@@ -190,7 +180,7 @@ class DownloadCommands {
     }
 
     async handleSoundDownload(interaction, soundName) {
-        const soundPath = path.join(require('../utils/constants').SOUNDS_DIR, `${soundName}.mp3`);
+        const soundPath = path.join(SOUNDS_DIR, `${soundName}.mp3`);
 
         if (!fs.existsSync(soundPath)) {
             await interaction.reply({ 
@@ -204,7 +194,7 @@ class DownloadCommands {
             await interaction.deferReply();
 
             const progressEmbed = new EmbedBuilder()
-                .setColor(0xFFAA00)
+                .setColor(COLORS.WARNING)
                 .setTitle('📥 Download wird vorbereitet...')
                 .setDescription(`**${soundName}.mp3** wird vorbereitet...`);
 
@@ -212,7 +202,7 @@ class DownloadCommands {
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             const successEmbed = new EmbedBuilder()
-                .setColor(0x00FF00)
+                .setColor(COLORS.SUCCESS)
                 .setTitle('✅ Download bereit!')
                 .setDescription(`**${soundName}.mp3** wurde gesendet!`)
                 .addFields(
@@ -235,7 +225,7 @@ class DownloadCommands {
             console.error('Fehler beim Sound-Download:', error);
             
             const errorEmbed = new EmbedBuilder()
-                .setColor(0xFF0000)
+                .setColor(COLORS.ERROR)
                 .setTitle('❌ Download fehlgeschlagen')
                 .setDescription('Ein Fehler ist beim Download aufgetreten.');
 

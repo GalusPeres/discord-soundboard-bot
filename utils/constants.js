@@ -1,6 +1,17 @@
 const path = require('path');
 
+// Config laden mit Fallbacks
+let config = { token: '', prefix: '8' };
+try {
+    config = require('../config/config.json');
+} catch (e) {
+    console.log('⚠️ Config nicht gefunden, nutze Standardwerte');
+}
+
 module.exports = {
+    // Bot Config
+    PREFIX: config.prefix || '8',
+
     // URLs
     GIF_URL: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOHNodWJ1aTgxY2JybmVkbWM3bTFnZWNuZDdtMHoyNGU4cnpmNHF3NiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/VcNHywtPkcpwCexxTp/giphy.gif',
     PNG_URL: 'https://i.postimg.cc/Zn6vqjY2/placeholder.png',
@@ -16,6 +27,14 @@ module.exports = {
     MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
     MAX_FILENAME_LENGTH: 10,
     CHUNK_SIZE: 9.98 * 1024 * 1024, // 9.98MB
+
+    // Delays (ms)
+    DELAYS: {
+        MESSAGE_DELETE: 3000,
+        MESSAGE_DELETE_LONG: 5000,
+        ERROR_MESSAGE: 8000,
+        TEMP_CLEANUP: 10000
+    }
     
     // Colors
     COLORS: {

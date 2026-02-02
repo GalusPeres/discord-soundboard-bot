@@ -3,10 +3,13 @@ const audioService = require('../services/audioService');
 const soundUtils = require('../utils/soundUtils');
 const embedUtils = require('../utils/embedUtils');
 const stateManager = require('../utils/stateManager');
+const { PREFIX } = require('../utils/constants');
+
+const prefix = PREFIX;
 
 class SoundCommands {
     async handleSoundCommand(message, content) {
-        const soundName = content.substring(1);
+        const soundName = content.substring(prefix.length);
         await audioService.playSound(message, soundName, false, false);
     }
 

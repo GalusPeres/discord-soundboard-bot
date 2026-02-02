@@ -2,7 +2,7 @@ const { EmbedBuilder } = require('discord.js');
 const archiver = require('archiver');
 const path = require('path');
 const fs = require('fs');
-const { SOUNDS_DIR, TEMP_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
+const { SOUNDS_DIR, TEMP_DIR, SOUND_LOGS_PATH, CHUNK_SIZE, COLORS } = require('../utils/constants');
 const soundUtils = require('../utils/soundUtils');
 
 class ZipService {
@@ -55,7 +55,7 @@ class ZipService {
             console.error('Fehler beim Erstellen des ZIP-Downloads:', error);
             
             const errorEmbed = new EmbedBuilder()
-                .setColor(0xFF0000)
+                .setColor(COLORS.ERROR)
                 .setTitle('❌ Fehler')
                 .setDescription('Archiv-Erstellung fehlgeschlagen.');
 
@@ -89,7 +89,7 @@ class ZipService {
     }
 
     async createSplitArchive(zipPath, outputDir) {
-        const chunkSize = 9.98 * 1024 * 1024; // 9.98MB
+        const chunkSize = CHUNK_SIZE;
         const zipBuffer = fs.readFileSync(zipPath);
         const chunks = [];
         
@@ -116,7 +116,7 @@ class ZipService {
 
     async showProgressInMessage(updateFunction, title, step) {
         const progressEmbed = new EmbedBuilder()
-            .setColor(0xFFAA00)
+            .setColor(COLORS.WARNING)
             .setTitle(`⏳ ${title}`)
             .setDescription(`**${step}**`);
 
@@ -125,7 +125,7 @@ class ZipService {
 
     async showFinalResultInMessage(updateFunction, splitFiles, totalSize) {
         const finalEmbed = new EmbedBuilder()
-            .setColor(0x00AE86)
+            .setColor(COLORS.PRIMARY)
             .setTitle('✅ Download bereit!')
             .setDescription(`**${splitFiles.length} Teile** mit **${soundUtils.getSoundboardButtons().length} Sounds** gesendet.`)
             .addFields(
