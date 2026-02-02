@@ -34,8 +34,8 @@ module.exports = {
         MESSAGE_DELETE_LONG: 5000,
         ERROR_MESSAGE: 8000,
         TEMP_CLEANUP: 10000
-    }
-    
+    },
+
     // Colors
     COLORS: {
         PRIMARY: 0x00AE86,
