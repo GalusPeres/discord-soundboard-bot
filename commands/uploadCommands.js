@@ -26,12 +26,12 @@ class UploadCommands {
 
             await message.author.send({ embeds: [uploadEmbed], components: [row] });
             
-            const confirmMsg = await message.reply('📩 Ich habe dir eine private Nachricht gesendet!');
+            const confirmMsg = await message.channel.send({ content: '📩 Ich habe dir eine private Nachricht gesendet!', allowedMentions: { parse: [] } });
             setTimeout(() => confirmMsg.delete().catch(console.error), 5000);
             
         } catch (error) {
             console.error('Fehler beim Senden der Upload-DM:', error);
-            const errorMsg = await message.reply('❌ Konnte dir keine private Nachricht senden. Stelle sicher, dass DMs von Server-Mitgliedern erlaubt sind.');
+            const errorMsg = await message.channel.send({ content: '❌ Konnte dir keine private Nachricht senden. Stelle sicher, dass DMs von Server-Mitgliedern erlaubt sind.', allowedMentions: { parse: [] } });
             setTimeout(() => errorMsg.delete().catch(console.error), 8000);
         }
     }
@@ -49,13 +49,13 @@ class UploadCommands {
         const fileExtension = path.extname(attachment.name).toLowerCase();
 
         if (attachment.size > MAX_FILE_SIZE) {
-            await message.reply('❌ Datei ist zu groß! Maximum: 10MB');
+            await message.channel.send({ content: '❌ Datei ist zu groß! Maximum: 10MB', allowedMentions: { parse: [] } });
             activeUploaders.delete(message.author.id);
             return;
         }
 
         if (fileExtension !== '.mp3') {
-            await message.reply('❌ Nur MP3-Dateien erlaubt!');
+            await message.channel.send({ content: '❌ Nur MP3-Dateien erlaubt!', allowedMentions: { parse: [] } });
             activeUploaders.delete(message.author.id);
             return;
         }
@@ -69,7 +69,7 @@ class UploadCommands {
         }
 
         if (fileName.length > MAX_FILENAME_LENGTH) {
-            await message.reply(`❌ Dateiname zu lang! Maximum: ${MAX_FILENAME_LENGTH} Zeichen\n\n**"${fileName}"** hat ${fileName.length} Zeichen.\n\nBitte benenne die Datei um oder wähle einen kürzeren Namen.`);
+            await message.channel.send({ content: `❌ Dateiname zu lang! Maximum: ${MAX_FILENAME_LENGTH} Zeichen\n\n**"${fileName}"** hat ${fileName.length} Zeichen.\n\nBitte benenne die Datei um oder wähle einen kürzeren Namen.`, allowedMentions: { parse: [] } });
             activeUploaders.delete(message.author.id);
             return;
         }
@@ -117,7 +117,7 @@ class UploadCommands {
             .setStyle(ButtonStyle.Secondary);
 
         const row = new ActionRowBuilder().addComponents(overwriteButton, cancelButton);
-        await message.reply({ embeds: [overwriteEmbed], components: [row] });
+        await message.channel.send({ embeds: [overwriteEmbed], components: [row], allowedMentions: { parse: [] } });
     }
 
     async showTransferButton(message, fileName, attachment) {
@@ -138,7 +138,7 @@ class UploadCommands {
             .setStyle(ButtonStyle.Success);
 
         const row = new ActionRowBuilder().addComponents(transferButton);
-        await message.reply({ embeds: [readyEmbed], components: [row] });
+        await message.channel.send({ embeds: [readyEmbed], components: [row], allowedMentions: { parse: [] } });
     }
 
     async handleButtonInteraction(interaction) {

@@ -3,6 +3,49 @@ const path = require('path');
 const { SOUNDS_DIR, SOUND_COUNTS_PATH, SOUNDS_PER_PAGE } = require('./constants');
 
 class SoundUtils {
+    constructor() {
+        this.soundCounts = null;
+        this.soundCountsDirty = false;
+        this.soundCountsFlushTimer = null;
+    }
+
+    ensureSoundCountsLoaded() {
+        if (this.soundCounts !== null) {
+            return;
+        }
+        try {
+            const raw = fs.readFileSync(SOUND_COUNTS_PATH, 'utf8');
+            this.soundCounts = JSON.parse(raw);
+        } catch (error) {
+            this.soundCounts = {};
+        }
+    }
+
+    scheduleSoundCountsFlush(delayMs = 2000) {
+        if (this.soundCountsFlushTimer) {
+            return;
+        }
+        this.soundCountsFlushTimer = setTimeout(() => {
+            this.soundCountsFlushTimer = null;
+            this.flushSoundCounts();
+        }, delayMs);
+    }
+
+    flushSoundCounts() {
+        if (!this.soundCountsDirty) {
+            return;
+        }
+        const payload = JSON.stringify(this.soundCounts ?? {}, null, 2);
+        this.soundCountsDirty = false;
+        fs.writeFile(SOUND_COUNTS_PATH, payload, 'utf8', (error) => {
+            if (error) {
+                console.error('Fehler beim Schreiben der Sound-Counts-Datei:', error);
+                this.soundCountsDirty = true;
+                this.scheduleSoundCountsFlush(5000);
+            }
+        });
+    }
+
     getSoundboardButtons() {
         if (!fs.existsSync(SOUNDS_DIR)) {
             fs.mkdirSync(SOUNDS_DIR, { recursive: true });
@@ -29,16 +72,13 @@ class SoundUtils {
     }
 
     getFavoriteSounds() {
-        let soundCounts;
-        try {
-            soundCounts = JSON.parse(fs.readFileSync(SOUND_COUNTS_PATH, 'utf8'));
-        } catch (error) {
-            console.error('Fehler beim Lesen der Sound-Counts-Datei:', error);
+        this.ensureSoundCountsLoaded();
+        if (!this.soundCounts || Object.keys(this.soundCounts).length === 0) {
             return [];
         }
         
         // Filtere nur Sounds die noch existieren
-        const existingSounds = Object.entries(soundCounts).filter(([soundFile, count]) => {
+        const existingSounds = Object.entries(this.soundCounts).filter(([soundFile]) => {
             const soundPath = path.join(SOUNDS_DIR, soundFile);
             return fs.existsSync(soundPath);
         });
@@ -68,22 +108,14 @@ class SoundUtils {
     }
 
     updateSoundCount(filePath) {
-        let soundCounts;
-        try {
-            soundCounts = JSON.parse(fs.readFileSync(SOUND_COUNTS_PATH, 'utf8'));
-        } catch (error) {
-            console.error('Fehler beim Lesen der Sound-Counts-Datei:', error);
-            soundCounts = {};
-        }
-        
+        this.ensureSoundCountsLoaded();
         const soundName = path.basename(filePath);
-        soundCounts[soundName] = (soundCounts[soundName] || 0) + 1;
-        
-        try {
-            fs.writeFileSync(SOUND_COUNTS_PATH, JSON.stringify(soundCounts, null, 2));
-        } catch (error) {
-            console.error('Fehler beim Schreiben der Sound-Counts-Datei:', error);
+        if (!this.soundCounts) {
+            this.soundCounts = {};
         }
+        this.soundCounts[soundName] = (this.soundCounts[soundName] || 0) + 1;
+        this.soundCountsDirty = true;
+        this.scheduleSoundCountsFlush();
     }
 
     getTotalPages() {

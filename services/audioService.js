@@ -1,206 +1,73 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
-const { MessageFlags } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const { SOUNDS_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
 const soundUtils = require('../utils/soundUtils');
-const embedUtils = require('../utils/embedUtils');
 const stateManager = require('../utils/stateManager');
 
 class AudioService {
     constructor() {
-        this.player = createAudioPlayer({
-            behaviors: {
-                noSubscriber: NoSubscriberBehavior.Play, // Weiterspielen auch ohne Subscriber
-                maxMissedFrames: 250 // Mehr Toleranz für verpasste Frames (Standard: 5)
-            }
-        });
+        this.player = null;
         this.connection = null;
         this.lastChannelId = null;
         this.lastGuildId = null;
         this.leaveTimeout = null;
         this.leaveDelay = 30000; // 30 Sekunden Verzögerung
-        this.soundsPlayedSinceConnect = 0;
-        this.maxSoundsBeforeReconnect = 20; // Reconnect alle 20 Sounds gegen akkumulierte Verzögerung
     }
 
-    setupAudioEvents() {
-        // ========== AUDIO PLAYER EVENTS ==========
+    // Erstellt einen frischen Player für jeden Sound
+    createFreshPlayer() {
+        // Alten Player aufräumen
+        if (this.player) {
+            try {
+                this.player.stop(true);
+                this.player.removeAllListeners();
+            } catch (e) {
+                // Ignorieren
+            }
+        }
+
+        this.player = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Play,
+                maxMissedFrames: 50
+            }
+        });
+
+        // Minimale Event-Handler
         this.player.on('error', error => {
-            console.error('🔴 [AUDIO] Player Fehler:', error.message);
-            this.logToFile(`[AUDIO ERROR] ${error.message}`);
-            this.player.stop();
-            // Erzwinge Idle-Status bei Fehler
-            this.forceIdleUpdate();
+            console.error('🔴 [AUDIO] Fehler:', error.message);
         });
 
         this.player.on(AudioPlayerStatus.Idle, () => {
-            console.log('⏹️ [AUDIO] Player Status: IDLE - Sound beendet');
-            this.handleSoundFinished();
+            stateManager.setCurrentPlayingFileName('');
         });
 
-        this.player.on(AudioPlayerStatus.Buffering, () => {
-            console.log('🔄 [AUDIO] Player Status: BUFFERING');
-        });
-
-        this.player.on(AudioPlayerStatus.Playing, () => {
-            console.log('▶️ [AUDIO] Player Status: PLAYING');
-            const currentSound = stateManager.getCurrentPlayingFileName();
-            console.log(`🎵 [AUDIO] Aktueller Sound: "${currentSound}"`);
-            
-            const state = stateManager.getSoundboardState();
-            if (!state.inHelpMenu) {
-                this.updateEmbedWithPlayingStatus();
-            }
-        });
-
-        this.player.on(AudioPlayerStatus.AutoPaused, () => {
-            console.log('⏸️ [AUDIO] Player Status: AUTO_PAUSED');
-            this.logToFile('[AUDIO] Player wurde automatisch pausiert');
-            // Bei Auto-Pause auch Idle-Status setzen
-            setTimeout(() => this.forceIdleUpdate(), 1000);
-        });
-
-        this.player.on(AudioPlayerStatus.Paused, () => {
-            console.log('⏸️ [AUDIO] Player Status: PAUSED');
-        });
-
-        // Zusätzlicher Timeout-Handler für hängende Animations
-        this.player.on('stateChange', (oldState, newState) => {
-            console.log(`🔄 [AUDIO] Player State Change: ${oldState.status} → ${newState.status}`);
-            
-            if (newState.status === AudioPlayerStatus.Idle) {
-                console.log('✅ [AUDIO] State Change bestätigt: Sound ist IDLE');
-                // Doppelt sicherstellen dass Idle-Update ausgeführt wird
-                setTimeout(() => this.handleSoundFinished(), 500);
-            }
-        });
+        return this.player;
     }
 
-    // ========== CONNECTION LOGGING ==========
-    setupConnectionEvents(connection, channelName) {
+    setupAudioEvents() {
+        // Nicht mehr benötigt - Player wird pro Sound erstellt
+    }
+
+    // ========== CONNECTION EVENTS (minimal für Performance) ==========
+    setupConnectionEvents(connection) {
         if (!connection) return;
 
-        connection.on(VoiceConnectionStatus.Connecting, () => {
-            console.log(`🔗 [CONNECTION] Verbinde zu Channel: ${channelName}...`);
-            this.logToFile(`[CONNECTION] Connecting to ${channelName}`);
-        });
-
-        connection.on(VoiceConnectionStatus.Ready, () => {
-            console.log(`✅ [CONNECTION] Erfolgreich verbunden mit: ${channelName}`);
-            this.logToFile(`[CONNECTION] Successfully connected to ${channelName}`);
-        });
-
-        connection.on(VoiceConnectionStatus.Disconnected, () => {
-            console.log(`❌ [CONNECTION] Getrennt von: ${channelName}`);
-            this.logToFile(`[CONNECTION] Disconnected from ${channelName}`);
-        });
-
-        connection.on(VoiceConnectionStatus.Destroyed, () => {
-            console.log(`💥 [CONNECTION] Zerstört: ${channelName}`);
-            this.logToFile(`[CONNECTION] Destroyed connection to ${channelName}`);
-        });
-
-        connection.on(VoiceConnectionStatus.Signalling, () => {
-            console.log(`📡 [CONNECTION] Signalling: ${channelName}`);
-        });
-
+        // Nur Fehler loggen - alles andere ist Performance-Overhead
         connection.on('error', (error) => {
-            console.error(`🔴 [CONNECTION] Fehler in ${channelName}:`, error.message);
-            this.logToFile(`[CONNECTION ERROR] ${channelName}: ${error.message}`);
-        });
-
-        connection.on('stateChange', (oldState, newState) => {
-            console.log(`🔄 [CONNECTION] Status-Wechsel: ${oldState.status} → ${newState.status} (${channelName})`);
-            this.logToFile(`[CONNECTION] State change: ${oldState.status} → ${newState.status} (${channelName})`);
+            console.error(`🔴 [CONNECTION] Fehler:`, error.message);
         });
     }
 
-    // ========== NEUE METHODEN FÜR BESSERES EMBED-HANDLING ==========
-    handleSoundFinished() {
-        // Wenn gerade ein neuer Sound startet (buffering/playing), ignoriere dieses Idle-Event
-        const playerStatus = this.player.state.status;
-        if (playerStatus === AudioPlayerStatus.Buffering || playerStatus === AudioPlayerStatus.Playing) {
-            console.log(`🏁 [EMBED] Sound beendet aber neuer Sound startet bereits (${playerStatus}) - ignoriere`);
-            return;
-        }
 
-        console.log('🏁 [EMBED] Sound beendet - räume auf...');
-
-        const currentSound = stateManager.getCurrentPlayingFileName();
-        console.log(`🏁 [EMBED] Beendeter Sound: "${currentSound}"`);
-
-        // State zurücksetzen
-        stateManager.setCurrentPlayingFileName('');
-
-        const state = stateManager.getSoundboardState();
-        console.log(`🏁 [EMBED] Aktueller State: inHelpMenu=${state.inHelpMenu}, inSoundboardMenu=${state.inSoundboardMenu}, inTop20Menu=${state.inTop20Menu}`);
-
-        if (!state.inHelpMenu) {
-            this.updateEmbedWithIdleStatus();
-        }
-
-        // Backup-Timer für hängende Embeds - nur wenn wirklich idle
-        setTimeout(() => {
-            this.forceIdleUpdate();
-        }, 2000);
-    }
-
-    forceIdleUpdate() {
-        // Wenn gerade ein Sound läuft, kein Idle-Update
-        const playerStatus = this.player.state.status;
-        if (playerStatus === AudioPlayerStatus.Buffering || playerStatus === AudioPlayerStatus.Playing) {
-            console.log(`🚨 [EMBED] Force Idle Update übersprungen - Sound läuft (${playerStatus})`);
-            return;
-        }
-
-        console.log('🚨 [EMBED] Force Idle Update - erzwinge Status-Reset');
-
-        const currentInteraction = stateManager.getCurrentInteraction();
-        if (!currentInteraction) {
-            console.log('⚠️ [EMBED] Keine aktuelle Interaction für Force Update');
-            return;
-        }
-
-        const state = stateManager.getSoundboardState();
-        let statusTitle;
-        
-        if (state.inSoundboardMenu) {
-            const totalPages = soundUtils.getTotalPages();
-            statusTitle = "## A - Z";
-            console.log(`🚨 [EMBED] Force Update für Soundboard-Menü (Seite ${state.currentPageIndex + 1})`);
-        } else if (state.inTop20Menu) {
-            statusTitle = "## Übersicht";
-            console.log('🚨 [EMBED] Force Update für Top 10 Menü');
-        } else {
-            console.log('🚨 [EMBED] Unbekannter Menu-State für Force Update');
-            return;
-        }
-        
-        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
-            const extras = this.getCurrentMenuExtras(currentInteraction.message);
-            const components = embedUtils.createStatusComponents(statusTitle, true, extras);
-            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
-                .then(() => {
-                    console.log('✅ [EMBED] Force Update erfolgreich');
-                })
-                .catch(error => {
-                    console.log('❌ [EMBED] Force Update fehlgeschlagen:', error.message);
-                    stateManager.setCurrentInteraction(null);
-                });
-        }
-    }
-
-    // ========== MAIN PLAY METHODS ==========
+    // ========== MAIN PLAY METHODS =========
     async playSound(context, soundName, sendReply = false, fromSoundboard = false) {
         const soundFilePath = path.join(SOUNDS_DIR, `${soundName}.mp3`);
         
         if (!fs.existsSync(soundFilePath)) {
             console.log(`❌ [SOUND] Sound nicht gefunden: ${soundName}`);
-            const errorMessage = await context.reply("Sound oder Befehl gibt es nicht.");
-            setTimeout(() => {
-                errorMessage.delete().catch(console.error);
-            }, 3000);
+            await this.sendTempNotice(context, "Sound oder Befehl gibt es nicht.", 3000);
             return;
         }
 
@@ -222,18 +89,7 @@ class AudioService {
             }
         }
 
-        // Erweiterte Logging
-        const berlinTime = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
-        const username = isMessage ? context.author.tag : context.user.tag;
-        const serverName = context.guild.name;
-        const channelName = context.member.voice.channel?.name || 'Unbekannt';
         const voiceChannelId = context.member.voice.channelId;
-        
-        console.log(`🎵 [SOUND] ${username} möchte "${soundName}" in Channel "${channelName}" (${voiceChannelId}) abspielen`);
-        
-        const logMessage = `${berlinTime} - ${username} played ${soundName} in channel ${channelName} on server ${serverName}`;
-        console.log(logMessage);
-        fs.appendFileSync(SOUND_LOGS_PATH, logMessage + "\n", 'utf8');
 
         // Set current interaction
         if (!isMessage) {
@@ -242,58 +98,28 @@ class AudioService {
 
         // Voice channel validation
         if (!voiceChannelId) {
-            console.log(`❌ [VOICE] ${username} ist in keinem Voice Channel`);
-            const replyText = 'Du musst in einem Sprachkanal sein, um den Sound abzuspielen.';
-            const errorMessage = await context.reply(replyText);
-            setTimeout(() => {
-                errorMessage.delete().catch(console.error);
-            }, 3000);
+            await this.sendTempNotice(context, 'Du musst in einem Sprachkanal sein.', 3000);
             return;
         }
 
         // Join voice channel
         const channel = context.guild.channels.cache.get(voiceChannelId);
         try {
-            await this.ensureVoiceConnection(channel, username);
+            await this.ensureVoiceConnection(channel);
         } catch (error) {
-            console.error(`❌ [CONNECTION] Connection zu "${channel.name}" fehlgeschlagen:`, error.message);
-            const errorMsg = await context.reply('❌ Verbindung zum Voice Channel fehlgeschlagen. Versuche es erneut.');
-            setTimeout(() => errorMsg.delete().catch(console.error), 5000);
+            await this.sendTempNotice(context, '❌ Verbindung fehlgeschlagen.', 5000);
             return;
         }
 
-        // Stop current sound and play new one
-        if (this.player.state.status === AudioPlayerStatus.Playing) {
-            console.log('⏹️ [AUDIO] Stoppe aktuellen Sound für neuen Sound');
-            this.player.stop();
-        }
-
-        console.log(`🚀 [AUDIO] Starte Wiedergabe: ${soundName}`);
+        // Frischen Player erstellen und Sound abspielen
+        const player = this.createFreshPlayer();
         const resource = createAudioResource(soundFilePath, {
             inputType: StreamType.Arbitrary,
             inlineVolume: false
         });
-        this.player.play(resource);
-        this.connection.subscribe(this.player);
-        this.soundsPlayedSinceConnect++;
+        player.play(resource);
+        this.connection.subscribe(player);
 
-        // Send reply if requested
-        if (sendReply) {
-            const state = stateManager.getSoundboardState();
-            const embedTitle = fromSoundboard 
-                ? "## A - Z"
-                : "## Übersicht";
-            
-            const extras = this.getCurrentMenuExtras(isMessage ? null : context.message);
-            const components = embedUtils.createStatusComponents(embedTitle, false, extras);
-
-            if (isMessage) {
-                await context.reply({ components, flags: MessageFlags.IsComponentsV2 });
-            } else {
-                await context.update({ components, flags: MessageFlags.IsComponentsV2 });
-            }
-        }
-        
         soundUtils.updateSoundCount(soundFilePath);
     }
 
@@ -308,103 +134,83 @@ class AudioService {
         const state = stateManager.getSoundboardState();
         if (!state.inTop20Menu && !state.inSoundboardMenu) {
             stateManager.updateSoundboardState({ inTop20Menu: true, inSoundboardMenu: false, inHelpMenu: false });
-            console.log('🔧 [STATE] Menu-State auf Top 10 gesetzt (war unbekannt)');
         }
 
-        console.log(`🎵 [SOUND] ${interaction.user.tag} möchte "${soundName}" abspielen (ohne Zählung)`);
-
         if (!interaction.member.voice.channelId) {
-            console.log(`❌ [VOICE] ${interaction.user.tag} ist in keinem Voice Channel`);
-            const errorMessage = await interaction.reply('Du musst in einem Sprachkanal sein, um den Sound abzuspielen.');
-            setTimeout(() => {
-                errorMessage.delete().catch(console.error);
-            }, 3000);
+            const errorMessage = await interaction.reply('Du musst in einem Sprachkanal sein.');
+            setTimeout(() => errorMessage.delete().catch(() => {}), 3000);
             return;
         }
 
-        await interaction.deferUpdate();
+        if (!interaction.deferred && !interaction.replied && typeof interaction.deferUpdate === 'function') {
+            interaction.deferUpdate().catch(() => {});
+        }
 
         const channel = interaction.guild.channels.cache.get(interaction.member.voice.channelId);
         try {
-            await this.ensureVoiceConnection(channel, interaction.user.tag);
+            await this.ensureVoiceConnection(channel);
         } catch (error) {
-            console.error(`❌ [CONNECTION] Connection zu "${channel.name}" fehlgeschlagen:`, error.message);
-            await interaction.editReply({ content: '❌ Verbindung zum Voice Channel fehlgeschlagen. Versuche es erneut.' });
             return;
         }
 
-        if (this.player.state.status === AudioPlayerStatus.Playing) {
-            console.log('⏹️ [AUDIO] Stoppe aktuellen Sound für neuen Sound (ohne Zählung)');
-            this.player.stop();
-        }
-
+        // Frischen Player erstellen und Sound abspielen
         try {
-            console.log(`🚀 [AUDIO] Starte Wiedergabe: ${soundName} (ohne Zählung)`);
+            const player = this.createFreshPlayer();
             const resource = createAudioResource(soundFilePath, {
                 inputType: StreamType.Arbitrary,
                 inlineVolume: false
             });
-            this.player.play(resource);
-            this.connection.subscribe(this.player);
-            this.soundsPlayedSinceConnect++;
-
-            // Logging
-            const berlinTime = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
-            const logMessage = `${berlinTime} - ${interaction.user.tag} played ${soundName} in channel ${channel.name} on server ${interaction.guild.name}`;
-            console.log(logMessage);
-            fs.appendFileSync(SOUND_LOGS_PATH, logMessage + "\n", 'utf8');
+            player.play(resource);
+            this.connection.subscribe(player);
         } catch (error) {
-            console.error("🔴 [AUDIO] Fehler beim Abspielen des Sounds:", error);
-            this.logToFile(`[AUDIO ERROR] Failed to play ${soundName}: ${error.message}`);
+            console.error("🔴 [AUDIO] Fehler:", error.message);
         }
     }
 
     // ========== CONNECTION MANAGEMENT ==========
-    async ensureVoiceConnection(channel, username) {
+    async ensureVoiceConnection(channel) {
         const channelId = channel.id;
         const guildId = channel.guild.id;
-        const channelName = channel.name;
 
-        // Lösche eventuellen Leave-Timeout da ein neuer Sound gespielt wird
         this.clearLeaveTimeout();
 
-        // Prüfe ob Reconnect wegen zu vieler Sounds nötig (gegen akkumulierte Verzögerung)
-        const needsReconnectForPerformance = this.soundsPlayedSinceConnect >= this.maxSoundsBeforeReconnect;
-        if (needsReconnectForPerformance) {
-            console.log(`🔄 [CONNECTION] Performance-Reconnect nach ${this.soundsPlayedSinceConnect} Sounds`);
-            this.soundsPlayedSinceConnect = 0;
+        // FAST PATH: Connection existiert und ready → sofort weiter!
+        if (this.connection &&
+            this.connection.state.status === VoiceConnectionStatus.Ready &&
+            this.connection.joinConfig.channelId === channelId &&
+            this.lastChannelId === channelId &&
+            this.lastGuildId === guildId) {
+            return;
         }
 
-        // Prüfe ob neue Connection benötigt wird
+        // Connection verbindet gerade → warten
+        if (this.connection &&
+            (this.connection.state.status === 'connecting' || this.connection.state.status === 'signalling') &&
+            this.connection.joinConfig.channelId === channelId) {
+            await this.waitForConnectionReady();
+            return;
+        }
+
+        // Neue Connection benötigt?
         const needsNewConnection = !this.connection ||
             this.connection.joinConfig.channelId !== channelId ||
             this.connection.state.status === 'destroyed' ||
             this.connection.state.status === 'disconnected' ||
-            this.connection.state.status === 'signalling' ||
-            this.connection.state.status === 'connecting' ||  // AUCH CONNECTING!
             this.lastChannelId !== channelId ||
-            this.lastGuildId !== guildId ||
-            needsReconnectForPerformance;
+            this.lastGuildId !== guildId;
 
         if (needsNewConnection) {
-            const oldChannelInfo = this.lastChannelId ? `von Channel ${this.lastChannelId}` : 'keine vorherige Connection';
-            console.log(`🔄 [CONNECTION] ${username} benötigt neue Connection: ${oldChannelInfo} → ${channelName} (${channelId})`);
-            
-            // Alte Connection explizit beenden
+
+            // Alte Connection beenden
             if (this.connection) {
                 try {
-                    console.log(`💥 [CONNECTION] Zerstöre alte Connection...`);
                     this.connection.destroy();
-                    this.logToFile(`[CONNECTION] Destroyed old connection`);
                 } catch (error) {
-                    console.log('⚠️ [CONNECTION] Alte Connection konnte nicht beendet werden:', error.message);
+                    // Ignorieren
                 }
                 this.connection = null;
             }
-            
-            console.log(`✨ [CONNECTION] Erstelle neue Voice Connection für "${channelName}" (${channelId})`);
-            this.logToFile(`[CONNECTION] Creating new connection to ${channelName} (${channelId}) for user ${username}`);
-            
+
             // Neue Connection erstellen
             this.connection = joinVoiceChannel({
                 channelId: channelId,
@@ -412,57 +218,45 @@ class AudioService {
                 adapterCreator: channel.guild.voiceAdapterCreator,
             });
 
-            // Event-Listener für neue Connection
-            this.setupConnectionEvents(this.connection, channelName);
-            
-            // Speichere aktuelle Channel-Info
+            this.setupConnectionEvents(this.connection);
             this.lastChannelId = channelId;
             this.lastGuildId = guildId;
-            this.soundsPlayedSinceConnect = 0; // Counter zurücksetzen bei neuer Connection
-        }
 
-        // KRITISCH: Warte auf READY-Status!
-        await this.waitForConnectionReady(channelName);
-        console.log(`✅ [CONNECTION] Connection Setup abgeschlossen für ${channelName} - STATUS: ${this.connection.state.status}`);
+            // NUR bei neuer Connection auf Ready warten
+            await this.waitForConnectionReady();
+        }
     }
 
-    async waitForConnectionReady(channelName) {
+    async waitForConnectionReady() {
         if (!this.connection) {
             throw new Error('Keine Connection vorhanden');
         }
 
-        console.log(`⏳ [CONNECTION] Warte auf READY-Status für "${channelName}"...`);
-        console.log(`🔍 [CONNECTION] Aktueller Status: ${this.connection.state.status}`);
-
         // Wenn bereits ready, sofort weiter
         if (this.connection.state.status === VoiceConnectionStatus.Ready) {
-            console.log(`✅ [CONNECTION] Bereits READY für "${channelName}"`);
             return;
         }
 
-        // Warte auf Ready-Event mit Timeout
+        // Warte auf Ready-Event mit kurzem Timeout
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                console.log(`❌ [CONNECTION] TIMEOUT beim Warten auf READY für "${channelName}"`);
-                // Versuche trotzdem weiterzumachen
-                resolve();
-            }, 5000); // 5 Sekunden Timeout
+                resolve(); // Timeout - versuche trotzdem
+            }, 2000);
+
+            const cleanup = () => {
+                clearTimeout(timeout);
+                this.connection?.off(VoiceConnectionStatus.Ready, onReady);
+                this.connection?.off(VoiceConnectionStatus.Disconnected, onError);
+                this.connection?.off(VoiceConnectionStatus.Destroyed, onError);
+            };
 
             const onReady = () => {
-                console.log(`✅ [CONNECTION] READY erhalten für "${channelName}"`);
-                clearTimeout(timeout);
-                this.connection.off(VoiceConnectionStatus.Ready, onReady);
-                this.connection.off(VoiceConnectionStatus.Disconnected, onError);
-                this.connection.off(VoiceConnectionStatus.Destroyed, onError);
+                cleanup();
                 resolve();
             };
 
             const onError = () => {
-                console.log(`❌ [CONNECTION] Connection failed für "${channelName}"`);
-                clearTimeout(timeout);
-                this.connection.off(VoiceConnectionStatus.Ready, onReady);
-                this.connection.off(VoiceConnectionStatus.Disconnected, onError);
-                this.connection.off(VoiceConnectionStatus.Destroyed, onError);
+                cleanup();
                 reject(new Error('Connection failed'));
             };
 
@@ -491,34 +285,36 @@ class AudioService {
         const randomIndex = Math.floor(Math.random() * soundFiles.length);
         const randomSound = soundFiles[randomIndex];
         console.log(`🎲 [RANDOM] Gewählter Sound: ${randomSound.label}`);
-        await this.playSound(interaction, randomSound.label, true, false);
+        await this.playSound(interaction, randomSound.label, false, false);
     }
 
     async stopSound() {
-        console.log('⏹️ [STOP] Stop-Befehl erhalten');
-        if (this.player.state.status === AudioPlayerStatus.Playing) {
-            console.log('⏹️ [STOP] Stoppe aktuelle Wiedergabe');
-            this.player.stop();
-            this.logToFile('[STOP] Sound stopped by user command');
-        } else {
-            console.log('ℹ️ [STOP] Kein Sound läuft aktuell');
+        if (this.player && this.player.state.status === AudioPlayerStatus.Playing) {
+            this.player.stop(true);
         }
     }
 
     async disconnect() {
-        console.log('🔌 [DISCONNECT] Disconnect-Befehl erhalten');
         this.clearLeaveTimeout();
+
+        // Player aufräumen
+        if (this.player) {
+            try {
+                this.player.stop(true);
+                this.player.removeAllListeners();
+            } catch (e) {}
+            this.player = null;
+        }
+
+        // Connection trennen
         if (this.connection) {
-            const channelInfo = this.lastChannelId ? `von Channel ${this.lastChannelId}` : '';
-            console.log(`🔌 [DISCONNECT] Trenne Connection ${channelInfo}`);
-            this.connection.destroy();
+            try {
+                this.connection.destroy();
+            } catch (e) {}
             this.connection = null;
             this.lastChannelId = null;
             this.lastGuildId = null;
             stateManager.setCurrentlyPlayingSound('');
-            this.logToFile('[DISCONNECT] Manual disconnect executed');
-        } else {
-            console.log('ℹ️ [DISCONNECT] Keine aktive Connection zum Trennen');
         }
     }
 
@@ -597,127 +393,40 @@ class AudioService {
     }
 
     // ========== HELPER METHODS ==========
+    appendLogEntry(message) {
+        fs.appendFile(SOUND_LOGS_PATH, message + "\n", 'utf8', (error) => {
+            if (error) {
+                console.error('[LOG] Schreiben fehlgeschlagen:', error.message);
+            }
+        });
+    }
+
     logToFile(message) {
         const berlinTime = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
         const logEntry = `${berlinTime} - ${message}`;
-        fs.appendFileSync(SOUND_LOGS_PATH, logEntry + "\n", 'utf8');
+        this.appendLogEntry(logEntry);
     }
 
-    getCurrentMenuExtras(message) {
-        if (message && message.id) {
-            const stored = stateManager.getMessageState(message.id);
-            if (stored && Array.isArray(stored.components) && stored.components.length > 0) {
-                return stored.components;
+    async sendTempNotice(context, content, timeoutMs = 3000) {
+        let message;
+        const isMessage = context?.constructor?.name === 'Message';
+        try {
+            if (isMessage && context?.channel) {
+                message = await context.channel.send({ content, allowedMentions: { parse: [] } });
+            } else if (context?.deferred || context?.replied) {
+                message = await context.followUp({ content, allowedMentions: { parse: [] } });
+            } else if (typeof context?.reply === 'function') {
+                message = await context.reply({ content, allowedMentions: { parse: [] } });
             }
-        }
-        const extras = stateManager.getCurrentComponents();
-        if (Array.isArray(extras) && extras.length > 0) {
-            return extras;
-        }
-        return embedUtils.getExtraComponentsFromMessage(message);
-    }
-
-    getMenuTitle(menuType) {
-        switch (menuType) {
-            case 'az':
-                return "## A - Z";
-            case 'help':
-                return "## Hilfe";
-            case 'overview':
-            default:
-                return "## Übersicht";
-        }
-    }
-
-    // ========== VERBESSERTE UPDATE-METHODEN ==========
-    updateEmbedWithPlayingStatus() {
-        const currentInteraction = stateManager.getCurrentInteraction();
-        const currentPlayingFileName = stateManager.getCurrentPlayingFileName();
-        
-        console.log(`🎵 [EMBED] Update Playing Status für: "${currentPlayingFileName}"`);
-        
-        if (!currentInteraction) {
-            console.log('⚠️ [EMBED] Keine aktuelle Interaction für Playing Update');
-            return;
-        }
-        
-        if (!currentPlayingFileName) {
-            console.log('⚠️ [EMBED] Kein aktueller Dateiname für Playing Update');
+        } catch (error) {
+            console.log('[NOTICE] Konnte Hinweis nicht senden:', error.message);
             return;
         }
 
-        let statusTitle;
-        const state = stateManager.getSoundboardState();
-
-        if (state.inSoundboardMenu) {
-            statusTitle = "## A - Z";
-            console.log(`🎵 [EMBED] Playing Update für Soundboard (Sound: ${currentPlayingFileName})`);
-        } else if (state.inTop20Menu) {
-            statusTitle = "## Übersicht";
-            console.log(`🎵 [EMBED] Playing Update für Übersicht (Sound: ${currentPlayingFileName})`);
-        } else if (state.inHelpMenu) {
-            statusTitle = "## Hilfe";
-            console.log(`🎵 [EMBED] Playing Update für Hilfe (Sound: ${currentPlayingFileName})`);
-        } else {
-            console.log('⚠️ [EMBED] Unbekannter Menu-State für Playing Update');
-            return;
-        }
-
-        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
-            const extras = this.getCurrentMenuExtras(currentInteraction.message);
-            const components = embedUtils.createStatusComponents(statusTitle, false, extras);
-            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
-                .then(() => {
-                    console.log('✅ [EMBED] Playing Status Update erfolgreich');
-                })
-                .catch(error => {
-                    console.log('❌ [EMBED] Playing Update fehlgeschlagen:', error.message);
-                    stateManager.setCurrentInteraction(null);
-                });
-        }
-    }
-
-    updateEmbedWithIdleStatus() {
-        const currentInteraction = stateManager.getCurrentInteraction();
-        
-        console.log('💤 [EMBED] Update Idle Status');
-        
-        if (!currentInteraction) {
-            console.log('⚠️ [EMBED] Keine aktuelle Interaction für Idle Update');
-            return;
-        }
-
-        let statusTitle;
-        const state = stateManager.getSoundboardState();
-
-        if (state.inSoundboardMenu) {
-            const totalPages = soundUtils.getTotalPages();
-            statusTitle = "## A - Z";
-            console.log(`💤 [EMBED] Idle Update für Soundboard (Seite ${state.currentPageIndex + 1})`);
-        } else if (state.inTop20Menu) {
-            statusTitle = "## Übersicht";
-            console.log('💤 [EMBED] Idle Update für Top 10');
-        } else {
-            console.log('⚠️ [EMBED] Unbekannter Menu-State für Idle Update');
-            return;
-        }
-
-        if (statusTitle && (currentInteraction.replied || currentInteraction.deferred)) {
-            const extras = this.getCurrentMenuExtras(currentInteraction.message);
-            const components = embedUtils.createStatusComponents(statusTitle, true, extras);
-            currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 })
-                .then(() => {
-                    console.log('✅ [EMBED] Idle Status Update erfolgreich - Animation gestoppt');
-                })
-                .catch(error => {
-                    console.log('❌ [EMBED] Idle Update fehlgeschlagen:', error.message);
-                    stateManager.setCurrentInteraction(null);
-                    
-                    // Letzter Versuch mit Force Update
-                    setTimeout(() => this.forceIdleUpdate(), 1000);
-                });
-        } else {
-            console.log('⚠️ [EMBED] Idle Update nicht möglich - fehlende Bedingungen');
+        if (message?.deletable) {
+            setTimeout(() => {
+                message.delete().catch(console.error);
+            }, timeoutMs);
         }
     }
 }

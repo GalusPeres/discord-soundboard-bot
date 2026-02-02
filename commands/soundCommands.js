@@ -15,17 +15,6 @@ class SoundCommands {
 
     async handleStop(message) {
         await audioService.stopSound();
-        
-        const state = stateManager.getSoundboardState();
-        const currentInteraction = stateManager.getCurrentInteraction();
-        if (state.inSoundboardMenu && currentInteraction) {
-            try {
-                const components = embedUtils.buildStatusComponentsFromMessage("Sound gestoppt", true, currentInteraction.message);
-                await currentInteraction.editReply({ components, flags: MessageFlags.IsComponentsV2 });
-            } catch (error) {
-                console.error('Fehler beim Aktualisieren der Antwort:', error);
-            }
-        }
     }
 
     async sendMainMenu(interaction) {
@@ -59,19 +48,19 @@ class SoundCommands {
             }
             extraComponents.push(navigationRow);
         }
-
-        const currentSound = stateManager.getCurrentPlayingFileName();
-        const isPlaying = Boolean(currentSound);
         stateManager.setCurrentComponents(extraComponents);
-        const statusComponents = embedUtils.createStatusComponents("## Übersicht", !isPlaying, extraComponents);
+        const menuComponents = embedUtils.createMenuComponents("## Übersicht", extraComponents);
         const replyOptions = { 
-            components: statusComponents, 
+            components: menuComponents, 
             allowedMentions: { parse: [] },
             flags: MessageFlags.IsComponentsV2
         };
 
         let messageRef = null;
-        if (interaction.deferred || interaction.replied) {
+        const isMessage = interaction?.constructor?.name === 'Message';
+        if (isMessage && interaction.channel) {
+            messageRef = await interaction.channel.send(replyOptions);
+        } else if (interaction.deferred || interaction.replied) {
             messageRef = await interaction.editReply(replyOptions);
         } else if (interaction.update) {
             await interaction.update(replyOptions);
@@ -114,13 +103,11 @@ class SoundCommands {
             extraComponents.push({ type: ComponentType.TextDisplay, content: pageInfo });
         }
         extraComponents.push(...rows, divider, navigationRow);
-        const currentSound = stateManager.getCurrentPlayingFileName();
-        const isPlaying = Boolean(currentSound);
         stateManager.setCurrentComponents(extraComponents);
-        const statusComponents = embedUtils.createStatusComponents("## A - Z", !isPlaying, extraComponents);
+        const menuComponents = embedUtils.createMenuComponents("## A - Z", extraComponents);
 
         await interaction.update({
-            components: statusComponents,
+            components: menuComponents,
             flags: MessageFlags.IsComponentsV2
         });
         if (interaction.message) {
@@ -137,8 +124,6 @@ class SoundCommands {
         });
         
         const { codeBlock, totalPages } = soundUtils.getPaginatedSoundsList(page, 60);
-
-        const helpDescription = 'Hier finden Sie eine Übersicht über unsere Soundclips.';
         const helpPageInfo = `### Seite ${page} von ${totalPages}\n${codeBlock}`;
         const helpPageSelectRow = this.createHelpPageSelectRow(page, totalPages);
         const paginationButtons = this.createPaginationButtons(page, totalPages);
@@ -151,23 +136,21 @@ class SoundCommands {
         }
         extraComponents.push({ type: ComponentType.Separator }, ...paginationButtons);
         stateManager.setCurrentComponents(extraComponents);
-        const statusComponents = embedUtils.createStatusComponents(
-            '## Hilfe',
-            true,
-            extraComponents,
-            helpDescription
-        );
+        const menuComponents = embedUtils.createMenuComponents("## Hilfe", extraComponents);
         const update = {
-            components: statusComponents,
+            components: menuComponents,
             allowedMentions: { parse: [] },
             flags: MessageFlags.IsComponentsV2
         };
         
         let messageRef = null;
+        const isMessage = interaction?.constructor?.name === 'Message';
         const isComponentInteraction = typeof interaction.isButton === 'function'
             && (interaction.isButton() || interaction.isStringSelectMenu());
 
-        if (isComponentInteraction && !interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
+        if (isMessage && interaction.channel) {
+            messageRef = await interaction.channel.send({ ...update, allowedMentions: { parse: [] } });
+        } else if (isComponentInteraction && !interaction.deferred && !interaction.replied && typeof interaction.update === 'function') {
             await interaction.update(update);
             messageRef = interaction.message;
         } else if (interaction.deferred || interaction.replied) {
@@ -203,11 +186,13 @@ class SoundCommands {
             await interaction.deferUpdate();
         } else if (customId.startsWith('sound_')) {
             const soundName = customId.replace('sound_', '');
-            await audioService.playSound(interaction, soundName, true, true);
+            await this.deferComponentInteraction(interaction);
+            await audioService.playSound(interaction, soundName, false, true);
         } else if (customId.startsWith('newest_play_sound_')) {
             const soundNameWithIndex = customId.replace('newest_play_sound_', '');
             const soundName = soundNameWithIndex.substring(0, soundNameWithIndex.lastIndexOf('_'));
-            await audioService.playSound(interaction, soundName, true, false);
+            await this.deferComponentInteraction(interaction);
+            await audioService.playSound(interaction, soundName, false, false);
         } else if (customId === 'disconnect') {
             await this.handleDisconnect(interaction);
         } else {
@@ -249,6 +234,7 @@ class SoundCommands {
                 await this.sendMainMenu(interaction);
                 break;
             case 'random_sound':
+                await this.deferComponentInteraction(interaction);
                 await audioService.playRandomSound(interaction);
                 break;
             case 'next-page':
@@ -267,8 +253,7 @@ class SoundCommands {
     async handleDisconnect(interaction) {
         await audioService.disconnect();
 
-        const components = embedUtils.buildStatusComponentsFromMessage("Übersicht", true, interaction.message);
-        await interaction.update({ components, flags: MessageFlags.IsComponentsV2 });
+        await this.sendMainMenu(interaction);
 
         const message = await interaction.followUp({ content: 'Bot getrennt.' });
         setTimeout(() => {
@@ -279,6 +264,21 @@ class SoundCommands {
     }
 
     // Helper Methods
+
+    deferComponentInteraction(interaction) {
+        if (!interaction || typeof interaction.deferUpdate !== 'function') {
+            return;
+        }
+        if (interaction.deferred || interaction.replied) {
+            return;
+        }
+        try {
+            interaction.deferUpdate().catch(() => {});
+        } catch (error) {
+            // Ignore defer errors to avoid breaking playback flow.
+        }
+    }
+
     createMainMenuRows(favoriteSounds, newestSounds) {
         const favoriteRows = [];
 

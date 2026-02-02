@@ -1,34 +1,33 @@
 const { EmbedBuilder, ComponentType } = require('discord.js');
-const stateManager = require('./stateManager');
 
 class EmbedUtils {
-    createStatusComponents(title, showIdleState = true, extraComponents = [], descriptionOverride = null) {
-        let description;
-
-        if (descriptionOverride) {
-            description = descriptionOverride;
-        } else if (showIdleState) {
-            description = "Wähle einen Sound aus!";
-        } else {
-            const currentSound = stateManager.getCurrentPlayingFileName();
-            description = `${currentSound} wird abgespielt...`;
-        }
-
+    createMenuComponents(title, extraComponents = [], description = null) {
         const normalizedExtras = this.normalizeComponents(extraComponents);
+        const headerParts = [];
         const trimmedTitle = typeof title === 'string' ? title.trim() : '';
-        const headerContent = trimmedTitle ? `${trimmedTitle}\n${description}` : description;
-
-        const containerComponents = [
-            {
+        if (trimmedTitle) {
+            headerParts.push(trimmedTitle);
+        }
+        if (description) {
+            headerParts.push(description);
+        }
+        const headerContent = headerParts.join('\n');
+        const containerComponents = [];
+        if (headerContent) {
+            containerComponents.push({
                 type: ComponentType.TextDisplay,
                 content: headerContent
-            }
-        ];
-
-        if (normalizedExtras.length > 0) {
-            containerComponents.push({ type: ComponentType.Separator }, ...normalizedExtras);
+            });
         }
-
+        if (normalizedExtras.length > 0) {
+            if (containerComponents.length > 0) {
+                containerComponents.push({ type: ComponentType.Separator });
+            }
+            containerComponents.push(...normalizedExtras);
+        }
+        if (containerComponents.length === 0) {
+            return [];
+        }
         return [
             {
                 type: ComponentType.Container,
@@ -53,7 +52,6 @@ class EmbedUtils {
         if (container) {
             const inner = container.components ?? container.data?.components ?? [];
             const normalizedInner = this.normalizeComponents(inner);
-
             if (
                 normalizedInner.length >= 2 &&
                 normalizedInner[0]?.type === ComponentType.TextDisplay &&
@@ -61,48 +59,40 @@ class EmbedUtils {
             ) {
                 return normalizedInner.slice(2);
             }
-            return normalizedInner.filter(component =>
-                component.type === ComponentType.ActionRow || component.type === ComponentType.Separator
-            );
+            if (normalizedInner.length >= 1 && normalizedInner[0]?.type === ComponentType.TextDisplay) {
+                return normalizedInner.slice(1);
+            }
+            return normalizedInner;
         }
 
-        return this.normalizeComponents(
-            components.filter(component =>
-                component.type === ComponentType.ActionRow || component.type === ComponentType.Separator
-            )
-        );
-    }
-
-    buildStatusComponentsFromMessage(title, showIdleState, message, descriptionOverride = null) {
-        const extraComponents = this.getExtraComponentsFromMessage(message);
-        return this.createStatusComponents(title, showIdleState, extraComponents, descriptionOverride);
+        return this.normalizeComponents(components);
     }
 
     createErrorEmbed(title, description) {
         return new EmbedBuilder()
             .setColor(0xFF0000)
-            .setTitle(`❌ ${title}`)
+            .setTitle(`âŒ ${title}`)
             .setDescription(description);
     }
 
     createSuccessEmbed(title, description) {
         return new EmbedBuilder()
             .setColor(0x00FF00)
-            .setTitle(`✅ ${title}`)
+            .setTitle(`âœ… ${title}`)
             .setDescription(description);
     }
 
     createWarningEmbed(title, description) {
         return new EmbedBuilder()
             .setColor(0xFFAA00)
-            .setTitle(`⚠️ ${title}`)
+            .setTitle(`âš ï¸ ${title}`)
             .setDescription(description);
     }
 
     createInfoEmbed(title, description) {
         return new EmbedBuilder()
             .setColor(0x0099FF)
-            .setTitle(`ℹ️ ${title}`)
+            .setTitle(`â„¹ï¸ ${title}`)
             .setDescription(description);
     }
 }

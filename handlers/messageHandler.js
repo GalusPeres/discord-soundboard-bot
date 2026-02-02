@@ -65,8 +65,8 @@ async function handleMessage(message) {
 
     } catch (error) {
         console.error('Fehler beim Verarbeiten der Nachricht:', error);
-        if (!message.replied) {
-            const errorMsg = await message.reply("Ein Fehler ist aufgetreten. Bitte versuche es erneut.");
+        if (!message.replied && message.channel) {
+            const errorMsg = await message.channel.send({ content: "Ein Fehler ist aufgetreten. Bitte versuche es erneut.", allowedMentions: { parse: [] } });
             setTimeout(() => errorMsg.delete().catch(console.error), 3000);
         }
     }

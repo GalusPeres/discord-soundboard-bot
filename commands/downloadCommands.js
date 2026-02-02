@@ -76,12 +76,12 @@ class DownloadCommands {
             // DIREKT SENDEN
             await message.author.send({ embeds: [downloadEmbed], components: rows });
             
-            const confirmMsg = await message.reply('📥 Ich habe dir das Download-Menü per DM gesendet!');
+            const confirmMsg = await message.channel.send({ content: '📥 Ich habe dir das Download-Menü per DM gesendet!', allowedMentions: { parse: [] } });
             setTimeout(() => confirmMsg.delete().catch(console.error), 5000);
             
         } catch (error) {
             console.error('Fehler beim Senden der Download-DM:', error);
-            const errorMsg = await message.reply('❌ Konnte dir keine private Nachricht senden. Stelle sicher, dass DMs von Server-Mitgliedern erlaubt sind.');
+            const errorMsg = await message.channel.send({ content: '❌ Konnte dir keine private Nachricht senden. Stelle sicher, dass DMs von Server-Mitgliedern erlaubt sind.', allowedMentions: { parse: [] } });
             setTimeout(() => errorMsg.delete().catch(console.error), 8000);
         }
     }
@@ -171,7 +171,7 @@ class DownloadCommands {
         if (messageOrInteraction.author) {
             // Es ist eine Message (8download command)
             await messageOrInteraction.author.send({ embeds: [downloadEmbed], components: rows });
-            const confirmMsg = await messageOrInteraction.reply('📥 Ich habe dir das Download-Menü per DM gesendet!');
+            const confirmMsg = await messageOrInteraction.channel.send({ content: '📥 Ich habe dir das Download-Menü per DM gesendet!', allowedMentions: { parse: [] } });
             setTimeout(() => confirmMsg.delete().catch(console.error), 5000);
         } else {
             // Es ist eine Interaction (Button click)
