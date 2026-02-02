@@ -123,7 +123,10 @@ class SoundCommands {
             currentHelpPageIndex: page
         });
         
-        const { codeBlock, totalPages } = soundUtils.getPaginatedSoundsList(page, 60);
+        let { codeBlock, totalPages } = soundUtils.getPaginatedSoundsList(page, 60);
+        if (page === 1) {
+            codeBlock = this.injectHelpCommandsIntoCodeBlock(codeBlock);
+        }
         const helpPageInfo = `### Seite ${page} von ${totalPages}\n${codeBlock}`;
         const helpPageSelectRow = this.createHelpPageSelectRow(page, totalPages);
         const paginationButtons = this.createPaginationButtons(page, totalPages);
@@ -410,6 +413,33 @@ class SoundCommands {
             .addOptions(options);
 
         return new ActionRowBuilder().addComponents(select);
+    }
+
+    injectHelpCommandsIntoCodeBlock(codeBlock) {
+        const cmd = prefix;
+        const separator = '-'.repeat(36);
+        const commandLines = [
+            `${cmd}<sound> - Sound abspielen`,
+            `${cmd}/${cmd}9/${cmd}nippel/nippel - Übersicht`,
+            `${cmd}help/${cmd}hilfe - Hilfe`,
+            `${cmd}stop/${cmd}stopp - Stopp`,
+            `${cmd}upload - Upload per DM`,
+            `${cmd}download - Download per DM`,
+            separator
+        ];
+
+        const trimmed = codeBlock.trim();
+        if (!trimmed.startsWith('```') || !trimmed.endsWith('```')) {
+            return codeBlock;
+        }
+
+        const lines = trimmed.split('\n');
+        const contentLines = lines.slice(1, -1);
+        const replaceCount = Math.min(commandLines.length, contentLines.length);
+        for (let i = 0; i < replaceCount; i++) {
+            contentLines[i] = commandLines[i];
+        }
+        return ['```', ...contentLines, '```'].join('\n');
     }
 
     createPaginationButtons(currentPage, totalPages) {
