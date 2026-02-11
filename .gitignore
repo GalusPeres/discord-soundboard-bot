@@ -4,6 +4,7 @@ config/config.json
 
 # ========== NODE.JS ==========
 node_modules/
+web/dist/
 npm-debug.log*
 *.log
 

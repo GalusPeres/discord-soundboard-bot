@@ -273,6 +273,34 @@ class AudioService {
     }
 
     // ========== OTHER METHODS ==========
+    async playSoundFromWeb(guild, voiceChannel, soundName, requestedBy = 'web') {
+        const soundFilePath = path.join(SOUNDS_DIR, `${soundName}.mp3`);
+
+        if (!fs.existsSync(soundFilePath)) {
+            throw new Error('Sound not found');
+        }
+
+        if (!voiceChannel) {
+            throw new Error('Voice channel missing');
+        }
+
+        stateManager.setCurrentPlayingFileName(soundName);
+        stateManager.setCurrentlyPlayingSound(soundName);
+
+        await this.ensureVoiceConnection(voiceChannel);
+
+        const player = this.createFreshPlayer();
+        const resource = createAudioResource(soundFilePath, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: false
+        });
+
+        player.play(resource);
+        this.connection.subscribe(player);
+        soundUtils.updateSoundCount(soundFilePath);
+        this.logToFile(`[WEB] ${requestedBy} played ${soundName} in guild ${guild.id}`);
+    }
+
     async playRandomSound(interaction) {
         console.log(`🎲 [RANDOM] ${interaction.user.tag} möchte zufälligen Sound`);
         const soundFiles = soundUtils.getSoundboardButtons();

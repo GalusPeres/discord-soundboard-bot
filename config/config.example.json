@@ -1,4 +1,14 @@
 {
 	"token": "your_token",
-	"prefix": "8"
+	"prefix": "8",
+	"web": {
+		"port": 3000,
+		"baseUrl": "http://localhost:3000",
+		"frontendUrl": "http://localhost:3000",
+		"callbackPath": "/auth/discord/callback",
+		"discordClientId": "your_discord_client_id",
+		"discordClientSecret": "your_discord_client_secret",
+		"sessionSecret": "replace_with_a_long_random_secret",
+		"allowedGuildIds": []
+	}
 }
