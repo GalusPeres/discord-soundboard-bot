@@ -24,6 +24,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     () => session.guilds.find((guild) => guild.id === selectedGuildId)?.name,
     [session.guilds, selectedGuildId]
   );
+  const isSoundboardPage = location.pathname === '/app/soundboard';
 
   const handleGuildChange = (guildId: string) => {
     if (!session.authenticated) {
@@ -101,6 +102,10 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           loggingOut={isLoggingOut}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+          showSoundboardRefresh={isSoundboardPage}
+          onSoundboardRefresh={() => {
+            window.dispatchEvent(new Event('soundboard:refresh'));
+          }}
         />
         <main className="scrollbar-subtle min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           <div className="mx-auto w-full max-w-[1550px]">{children}</div>

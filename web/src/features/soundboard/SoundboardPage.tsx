@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCcw, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -59,6 +59,17 @@ export function SoundboardPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const handleExternalRefresh = () => {
+      void reload();
+    };
+
+    window.addEventListener('soundboard:refresh', handleExternalRefresh);
+    return () => {
+      window.removeEventListener('soundboard:refresh', handleExternalRefresh);
+    };
+  }, [reload]);
 
   const showPlayNotice = (soundName: string, message: string) => {
     setPlayNotice({ soundName, message });
@@ -146,20 +157,12 @@ export function SoundboardPage() {
 
   return (
     <section className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Sounds" value={String(sounds.length)} />
-        <StatCard label="Top Played" value={topSounds[0]?.name ?? '-'} />
-        <StatCard label="Newest" value={newSounds[0]?.name ?? '-'} />
-        <Card className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">Refresh</p>
-            <p className="text-sm text-[var(--color-text)]">Reload latest library state.</p>
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => void reload()}>
-            <RefreshCcw size={14} />
-            Refresh
-          </Button>
-        </Card>
+      <div className="mx-auto w-full max-w-3xl">
+        <div className="grid grid-cols-3 gap-2">
+          <StatCard label="Total" value={String(sounds.length)} />
+          <StatCard label="Top" value={topSounds[0]?.name ?? '-'} />
+          <StatCard label="New" value={newSounds[0]?.name ?? '-'} />
+        </div>
       </div>
 
       <Card className="space-y-4">
@@ -219,9 +222,9 @@ export function SoundboardPage() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <p className="text-xs uppercase tracking-[0.08em] text-[var(--color-text-muted)]">{label}</p>
-      <p className="mt-2 truncate text-lg font-semibold">{value}</p>
+    <Card className="min-w-0 p-3">
+      <p className="truncate text-[10px] uppercase tracking-[0.08em] text-[var(--color-text-muted)]">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold leading-tight">{value}</p>
     </Card>
   );
 }

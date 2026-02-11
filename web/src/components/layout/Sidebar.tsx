@@ -84,6 +84,8 @@ export function Sidebar({
   onNavigate?: () => void;
   onClose?: () => void;
 }) {
+  const selectedGuildName = guilds.find((guild) => guild.id === selectedGuildId)?.name;
+
   return (
     <aside
       className={cn(
@@ -92,33 +94,63 @@ export function Sidebar({
       )}
       aria-label="Primary"
     >
-      <div className={cn('px-4 pb-4 pt-4', mobile ? 'border-b border-[#323a53] bg-[#1f2435] pt-3' : '')}>
-        <div className={cn('mb-4 flex items-center', mobile ? 'justify-between gap-3 px-0' : 'px-2')}>
-          {mobile ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              aria-label="Close navigation"
-              onClick={() => {
-                onClose?.();
-              }}
-            >
-              <Menu size={16} />
-            </Button>
-          ) : null}
-          <h1 className="text-[1.9rem] font-bold leading-none tracking-[0.01em]">Soundboard</h1>
-        </div>
+      <div
+        className={
+          mobile
+            ? 'border-b border-[#323a53] bg-[#1f2435] px-4 py-3'
+            : 'px-4 pb-4 pt-4'
+        }
+      >
+        {mobile ? (
+          <div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label="Close navigation"
+                onClick={() => {
+                  onClose?.();
+                }}
+              >
+                <Menu size={16} />
+              </Button>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-xl font-semibold text-[var(--color-text)]">Soundboard</h2>
+                {selectedGuildName ? <p className="truncate text-sm text-[var(--color-text-muted)]">{selectedGuildName}</p> : null}
+              </div>
+            </div>
 
-        <GuildSelector
-          guilds={guilds}
-          selectedGuildId={selectedGuildId}
-          onChange={(guildId) => {
-            onGuildChange(guildId);
-            onNavigate?.();
-          }}
-          disabled={!authenticated || guilds.length === 0}
-          className="w-full"
-        />
+            <div className="mt-3">
+              <GuildSelector
+                guilds={guilds}
+                selectedGuildId={selectedGuildId}
+                onChange={(guildId) => {
+                  onGuildChange(guildId);
+                  onNavigate?.();
+                }}
+                disabled={!authenticated || guilds.length === 0}
+                className="w-full"
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 flex items-center px-2">
+              <h1 className="text-[1.9rem] font-bold leading-none tracking-[0.01em]">Soundboard</h1>
+            </div>
+
+            <GuildSelector
+              guilds={guilds}
+              selectedGuildId={selectedGuildId}
+              onChange={(guildId) => {
+                onGuildChange(guildId);
+                onNavigate?.();
+              }}
+              disabled={!authenticated || guilds.length === 0}
+              className="w-full"
+            />
+          </>
+        )}
       </div>
 
       <div className="flex-1 px-4 py-4">

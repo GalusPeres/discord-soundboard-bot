@@ -19,6 +19,64 @@ const ADMINISTRATOR = 0x8n;
 const MANAGE_GUILD = 0x20n;
 const CONFIG_PATH = path.join(__dirname, '../config/config.json');
 
+class DiscordApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'DiscordApiError';
+    this.status = status;
+  }
+}
+
+function readEnvValue(...keys) {
+  for (const key of keys) {
+    const rawValue = process.env[key];
+    if (typeof rawValue === 'string') {
+      const trimmed = rawValue.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return '';
+}
+
+function parseBoolean(value, defaultValue = false) {
+  if (typeof value !== 'string') {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return defaultValue;
+}
+
+function parseAllowedGuildIds(rawValue) {
+  if (!rawValue) {
+    return [];
+  }
+
+  return rawValue
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function resolveSessionSecret(configSessionSecret) {
+  const envSessionSecret = readEnvValue('SOUNDBOARD_SESSION_SECRET', 'SESSION_SECRET');
+  const candidate = envSessionSecret || String(configSessionSecret || '');
+  if (candidate.length >= 32) {
+    return candidate;
+  }
+
+  console.warn('[WEB] Missing or weak session secret. Generating ephemeral secret for this process.');
+  return crypto.randomBytes(48).toString('hex');
+}
+
 function loadWebConfig() {
   let config = {};
   try {
@@ -28,18 +86,45 @@ function loadWebConfig() {
   }
 
   const webConfig = config.web ?? {};
-  const port = Number(webConfig.port ?? 3000);
-  const baseUrl = webConfig.baseUrl || `http://localhost:${port}`;
+  const parsedPort = Number.parseInt(readEnvValue('WEB_PORT'), 10);
+  const configPort = Number(webConfig.port ?? 3000);
+  const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : configPort;
+
+  const baseUrl = readEnvValue('WEB_BASE_URL') || webConfig.baseUrl || `http://localhost:${port}`;
+  const frontendUrl = readEnvValue('WEB_FRONTEND_URL') || webConfig.frontendUrl || baseUrl;
+
+  const cookieSecureOverride = readEnvValue('WEB_COOKIE_SECURE');
+  let inferredSecureCookie = false;
+  try {
+    inferredSecureCookie = new URL(baseUrl).protocol === 'https:';
+  } catch {
+    inferredSecureCookie = false;
+  }
+
+  const cookieSecure = cookieSecureOverride
+    ? parseBoolean(cookieSecureOverride, inferredSecureCookie)
+    : inferredSecureCookie;
+
+  const allowedGuildIdsFromEnv = parseAllowedGuildIds(readEnvValue('WEB_ALLOWED_GUILD_IDS'));
+  const allowedGuildIds = allowedGuildIdsFromEnv.length > 0
+    ? allowedGuildIdsFromEnv
+    : Array.isArray(webConfig.allowedGuildIds)
+      ? webConfig.allowedGuildIds
+      : [];
+
+  const trustProxy = parseBoolean(readEnvValue('WEB_TRUST_PROXY'), cookieSecure);
 
   return {
     port,
     baseUrl,
-    frontendUrl: webConfig.frontendUrl || baseUrl,
-    callbackPath: webConfig.callbackPath || '/auth/discord/callback',
-    discordClientId: webConfig.discordClientId || '',
-    discordClientSecret: webConfig.discordClientSecret || '',
-    sessionSecret: webConfig.sessionSecret || crypto.randomBytes(48).toString('hex'),
-    allowedGuildIds: Array.isArray(webConfig.allowedGuildIds) ? webConfig.allowedGuildIds : []
+    frontendUrl,
+    callbackPath: readEnvValue('WEB_CALLBACK_PATH') || webConfig.callbackPath || '/auth/discord/callback',
+    discordClientId: readEnvValue('DISCORD_CLIENT_ID') || webConfig.discordClientId || '',
+    discordClientSecret: readEnvValue('DISCORD_CLIENT_SECRET') || webConfig.discordClientSecret || '',
+    sessionSecret: resolveSessionSecret(webConfig.sessionSecret),
+    allowedGuildIds,
+    cookieSecure,
+    trustProxy
   };
 }
 
@@ -131,10 +216,31 @@ async function fetchDiscordJSON(accessToken, endpoint, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`Discord API request failed: ${response.status}`);
+    throw new DiscordApiError(`Discord API request failed: ${response.status}`, response.status);
   }
 
   return response.json();
+}
+
+async function refreshDiscordAccessToken(refreshToken, webConfig) {
+  const tokenResponse = await fetch(`${DISCORD_API_BASE}/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({
+      client_id: webConfig.discordClientId,
+      client_secret: webConfig.discordClientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken
+    }).toString()
+  });
+
+  if (!tokenResponse.ok) {
+    throw new DiscordApiError(`Discord token refresh failed: ${tokenResponse.status}`, tokenResponse.status);
+  }
+
+  return tokenResponse.json();
 }
 
 function buildSessionContext(client, webConfig, discordUser, discordGuilds, preferredGuildId = null) {
@@ -202,21 +308,54 @@ async function getDiscordSessionContext(req, client, webConfig) {
     return storedContext;
   }
 
-  const accessToken = req.session.auth?.accessToken;
-  if (!accessToken) {
+  const authSession = req.session.auth;
+  if (!authSession?.accessToken) {
     return null;
   }
 
-  const context = await fetchDiscordDashboardContext(
-    accessToken,
-    client,
-    webConfig,
-    req.session.selectedGuildId || null
-  );
+  try {
+    const context = await fetchDiscordDashboardContext(
+      authSession.accessToken,
+      client,
+      webConfig,
+      req.session.selectedGuildId || null
+    );
 
-  req.session.authContext = context;
-  req.session.selectedGuildId = context.selectedGuildId;
-  return context;
+    req.session.authContext = context;
+    req.session.selectedGuildId = context.selectedGuildId;
+    return context;
+  } catch (error) {
+    const canRefreshToken = error instanceof DiscordApiError
+      && error.status === 401
+      && typeof authSession.refreshToken === 'string'
+      && authSession.refreshToken.length > 0
+      && webConfig.discordClientId
+      && webConfig.discordClientSecret;
+
+    if (!canRefreshToken) {
+      throw error;
+    }
+
+    const refreshed = await refreshDiscordAccessToken(authSession.refreshToken, webConfig);
+    req.session.auth = {
+      accessToken: refreshed.access_token,
+      refreshToken: refreshed.refresh_token || authSession.refreshToken,
+      expiresAt: typeof refreshed.expires_in === 'number'
+        ? Date.now() + refreshed.expires_in * 1000
+        : authSession.expiresAt ?? null
+    };
+
+    const context = await fetchDiscordDashboardContext(
+      refreshed.access_token,
+      client,
+      webConfig,
+      req.session.selectedGuildId || null
+    );
+
+    req.session.authContext = context;
+    req.session.selectedGuildId = context.selectedGuildId;
+    return context;
+  }
 }
 
 function listSoundFiles() {
@@ -287,26 +426,133 @@ function resolveSoundPath(soundName) {
   };
 }
 
+function isLikelyMp3(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) {
+    return false;
+  }
+
+  if (buffer.subarray(0, 3).toString('ascii') === 'ID3') {
+    return true;
+  }
+
+  return buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0;
+}
+
+function createRateLimiter({ windowMs, maxRequests, errorMessage }) {
+  const hits = new Map();
+
+  return (req, res, next) => {
+    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const existing = hits.get(key);
+
+    if (!existing || existing.resetAt <= now) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    existing.count += 1;
+    if (existing.count > maxRequests) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      res.status(429).json({ error: errorMessage });
+      return;
+    }
+
+    next();
+  };
+}
+
+function createSameOriginGuard(webConfig) {
+  const allowedOrigins = new Set();
+  for (const candidate of [webConfig.baseUrl, webConfig.frontendUrl]) {
+    try {
+      allowedOrigins.add(new URL(candidate).origin);
+    } catch {
+      // Ignore invalid configured URLs and keep remaining origins.
+    }
+  }
+
+  return (req, res, next) => {
+    const origin = req.get('origin');
+    if (!origin || allowedOrigins.has(origin)) {
+      next();
+      return;
+    }
+    res.status(403).json({ error: 'Cross-origin request blocked' });
+  };
+}
+
+function applySecurityHeaders(req, res, next) {
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+      "img-src 'self' data: https://cdn.discordapp.com",
+      "media-src 'self' blob:",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self'",
+      "form-action 'self' https://discord.com"
+    ].join('; ')
+  );
+  next();
+}
+
 function createServer({ client, audioService }) {
   const webConfig = loadWebConfig();
   const app = express();
 
+  if (webConfig.trustProxy) {
+    app.set('trust proxy', 1);
+  }
+
   app.disable('x-powered-by');
-  app.use(express.json());
+  app.use(applySecurityHeaders);
+  app.use(express.json({ limit: '256kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '256kb' }));
   app.use(
     session({
       name: 'discord_soundboard_session',
       secret: webConfig.sessionSecret,
       resave: false,
       saveUninitialized: false,
+      proxy: webConfig.trustProxy,
       cookie: {
         httpOnly: true,
         sameSite: 'lax',
-        secure: false,
+        secure: webConfig.cookieSecure,
+        path: '/',
         maxAge: 7 * 24 * 60 * 60 * 1000
       }
     })
   );
+
+  const requireSameOrigin = createSameOriginGuard(webConfig);
+  const authRateLimit = createRateLimiter({
+    windowMs: 60 * 1000,
+    maxRequests: 30,
+    errorMessage: 'Too many authentication requests. Please try again in a minute.'
+  });
+  const mutationRateLimit = createRateLimiter({
+    windowMs: 60 * 1000,
+    maxRequests: 120,
+    errorMessage: 'Too many requests. Please try again shortly.'
+  });
+  const uploadRateLimit = createRateLimiter({
+    windowMs: 60 * 1000,
+    maxRequests: 20,
+    errorMessage: 'Too many upload requests. Please wait a minute and try again.'
+  });
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -330,7 +576,7 @@ function createServer({ client, audioService }) {
     }
   };
 
-  app.get('/auth/discord/login', (req, res) => {
+  app.get('/auth/discord/login', authRateLimit, (req, res) => {
     if (!webConfig.discordClientId || !webConfig.discordClientSecret) {
       res.status(500).send('Discord OAuth is not configured.');
       return;
@@ -350,7 +596,7 @@ function createServer({ client, audioService }) {
     res.redirect(authorizeUrl.toString());
   });
 
-  app.get(webConfig.callbackPath, async (req, res) => {
+  app.get(webConfig.callbackPath, authRateLimit, async (req, res) => {
     const code = String(req.query.code || '');
     const state = String(req.query.state || '');
 
@@ -382,21 +628,39 @@ function createServer({ client, audioService }) {
 
       const tokenPayload = await tokenResponse.json();
       const context = await fetchDiscordDashboardContext(tokenPayload.access_token, client, webConfig, null);
-
-      req.session.auth = {
-        accessToken: tokenPayload.access_token
+      const nextSessionData = {
+        auth: {
+          accessToken: tokenPayload.access_token,
+          refreshToken: tokenPayload.refresh_token || null,
+          expiresAt: typeof tokenPayload.expires_in === 'number'
+            ? Date.now() + tokenPayload.expires_in * 1000
+            : null
+        },
+        authContext: context,
+        oauthState: null,
+        selectedGuildId: context.selectedGuildId
       };
-      req.session.authContext = context;
-      req.session.oauthState = null;
-      req.session.selectedGuildId = context.selectedGuildId;
-      req.session.save((saveError) => {
-        if (saveError) {
-          console.error('[WEB] Session save after OAuth failed:', saveError.message);
+
+      req.session.regenerate((regenerateError) => {
+        if (regenerateError) {
+          console.error('[WEB] Session regenerate after OAuth failed:', regenerateError.message);
           res.status(500).send('OAuth login failed.');
           return;
         }
 
-        res.redirect(`${webConfig.frontendUrl}/app/soundboard`);
+        req.session.auth = nextSessionData.auth;
+        req.session.authContext = nextSessionData.authContext;
+        req.session.oauthState = nextSessionData.oauthState;
+        req.session.selectedGuildId = nextSessionData.selectedGuildId;
+        req.session.save((saveError) => {
+          if (saveError) {
+            console.error('[WEB] Session save after OAuth failed:', saveError.message);
+            res.status(500).send('OAuth login failed.');
+            return;
+          }
+
+          res.redirect(`${webConfig.frontendUrl}/app/soundboard`);
+        });
       });
     } catch (error) {
       console.error('[WEB] OAuth callback failed:', error.message);
@@ -418,14 +682,19 @@ function createServer({ client, audioService }) {
     }
   });
 
-  app.post('/auth/logout', (req, res) => {
+  app.post('/auth/logout', requireSameOrigin, authRateLimit, (req, res) => {
     req.session.destroy(() => {
-      res.clearCookie('discord_soundboard_session');
+      res.clearCookie('discord_soundboard_session', {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: webConfig.cookieSecure,
+        path: '/'
+      });
       res.json({ success: true });
     });
   });
 
-  app.post('/api/guilds/select', requireAuth, (req, res) => {
+  app.post('/api/guilds/select', requireAuth, requireSameOrigin, mutationRateLimit, (req, res) => {
     const guildId = String(req.body.guildId || '');
     if (!req.authContext.guilds.some((guild) => guild.id === guildId)) {
       res.status(400).json({ error: 'Unknown guild selected' });
@@ -450,7 +719,7 @@ function createServer({ client, audioService }) {
     });
   });
 
-  app.patch('/api/settings', requireAuth, (req, res) => {
+  app.patch('/api/settings', requireAuth, requireSameOrigin, mutationRateLimit, (req, res) => {
     const prefix = String(req.body.prefix || '').trim();
     if (!/^\S{1,5}$/.test(prefix)) {
       res.status(400).json({ error: 'Prefix must contain 1-5 non-space characters' });
@@ -477,7 +746,7 @@ function createServer({ client, audioService }) {
     }
   });
 
-  app.post('/api/sounds/play', requireAuth, async (req, res) => {
+  app.post('/api/sounds/play', requireAuth, requireSameOrigin, mutationRateLimit, async (req, res) => {
     const soundName = sanitizeSoundName(req.body.soundName);
     const guildId = String(req.body.guildId || req.authContext.selectedGuildId || '');
 
@@ -519,7 +788,7 @@ function createServer({ client, audioService }) {
     }
   });
 
-  app.post('/api/sounds/upload', requireAuth, upload.single('file'), (req, res) => {
+  app.post('/api/sounds/upload', requireAuth, requireSameOrigin, uploadRateLimit, upload.single('file'), (req, res) => {
     const file = req.file;
     if (!file) {
       res.status(400).json({ error: 'MP3 file is required' });
@@ -529,6 +798,11 @@ function createServer({ client, audioService }) {
     const extension = path.extname(file.originalname).toLowerCase();
     if (extension !== '.mp3') {
       res.status(400).json({ error: 'Only MP3 uploads are allowed' });
+      return;
+    }
+
+    if (!isLikelyMp3(file.buffer)) {
+      res.status(400).json({ error: 'Uploaded file does not look like a valid MP3' });
       return;
     }
 
@@ -559,7 +833,7 @@ function createServer({ client, audioService }) {
     }
   });
 
-  app.patch('/api/sounds/:soundName', requireAuth, (req, res) => {
+  app.patch('/api/sounds/:soundName', requireAuth, requireSameOrigin, mutationRateLimit, (req, res) => {
     const oldName = sanitizeSoundName(req.params.soundName);
     const newName = sanitizeSoundName(req.body.newName);
 
@@ -598,7 +872,7 @@ function createServer({ client, audioService }) {
     }
   });
 
-  app.delete('/api/sounds/:soundName', requireAuth, (req, res) => {
+  app.delete('/api/sounds/:soundName', requireAuth, requireSameOrigin, mutationRateLimit, (req, res) => {
     const soundName = sanitizeSoundName(req.params.soundName);
     if (!soundName) {
       res.status(400).json({ error: 'Invalid sound name' });
