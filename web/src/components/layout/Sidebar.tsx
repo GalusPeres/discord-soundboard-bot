@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import { NavLink } from 'react-router-dom';
-import { FolderCog, LayoutGrid, Menu, SlidersHorizontal } from 'lucide-react';
+import { BarChart3, FolderCog, LayoutGrid, Menu, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/shared/utils/cn';
 import { GuildSelector } from '@/components/layout/GuildSelector';
 import { Button } from '@/components/ui/Button';
@@ -8,25 +8,23 @@ import type { GuildSummary } from '@/shared/types/api';
 
 const primaryItems = [
   { to: '/app/soundboard', label: 'Soundboard', icon: LayoutGrid },
+  { to: '/app/stats', label: 'Stats', icon: BarChart3 },
   { to: '/app/manage', label: 'Manage Sounds', icon: FolderCog }
 ] as const;
 
 const configItems = [{ to: '/app/settings', label: 'Settings', icon: SlidersHorizontal }] as const;
 
 function NavSection({
-  title,
   items,
   onNavigate,
   disabled
 }: {
-  title: string;
   items: ReadonlyArray<{ to: string; label: string; icon: ComponentType<{ size?: number }> }>;
   onNavigate?: () => void;
   disabled?: boolean;
 }) {
   return (
     <div className="mb-4">
-      <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.1em] text-[#9aa5c4]">{title}</p>
       <div className="space-y-1">
         {items.map((item) => {
           const Icon = item.icon;
@@ -90,47 +88,26 @@ export function Sidebar({
     <aside
       className={cn(
         'scrollbar-subtle flex h-screen w-72 flex-col overflow-y-auto border-r border-[#2f3750] bg-[#1a1f2d]',
-        mobile ? 'w-full max-w-[18rem]' : ''
+        mobile ? 'w-full max-w-[20rem] sm:max-w-[22rem]' : ''
       )}
       aria-label="Primary"
     >
-      <div
-        className={
-          mobile
-            ? 'border-b border-[#323a53] bg-[#1f2435] px-4 py-3'
-            : 'px-4 pb-4 pt-4'
-        }
-      >
+      <div className={cn(mobile ? 'border-b border-[#323a53] bg-[#1f2435] px-4 py-3 sm:px-6' : 'px-4 pb-4 pt-4')}>
         {mobile ? (
-          <div>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="secondary"
-                size="sm"
-                aria-label="Close navigation"
-                onClick={() => {
-                  onClose?.();
-                }}
-              >
-                <Menu size={16} />
-              </Button>
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-xl font-semibold text-[var(--color-text)]">Soundboard</h2>
-                {selectedGuildName ? <p className="truncate text-sm text-[var(--color-text-muted)]">{selectedGuildName}</p> : null}
-              </div>
-            </div>
-
-            <div className="mt-3">
-              <GuildSelector
-                guilds={guilds}
-                selectedGuildId={selectedGuildId}
-                onChange={(guildId) => {
-                  onGuildChange(guildId);
-                  onNavigate?.();
-                }}
-                disabled={!authenticated || guilds.length === 0}
-                className="w-full"
-              />
+          <div className="flex items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Close navigation"
+              onClick={() => {
+                onClose?.();
+              }}
+            >
+              <Menu size={16} />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-xl font-semibold text-[var(--color-text)]">Soundboard</h2>
+              {selectedGuildName ? <p className="truncate text-sm text-[var(--color-text-muted)]">{selectedGuildName}</p> : null}
             </div>
           </div>
         ) : (
@@ -153,16 +130,25 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="flex-1 px-4 py-4">
+      <div className={cn('flex-1 px-4 py-4', mobile ? 'sm:px-6' : '')}>
+        {mobile ? (
+          <div className="mb-4">
+            <GuildSelector
+              guilds={guilds}
+              selectedGuildId={selectedGuildId}
+              onChange={(guildId) => {
+                onGuildChange(guildId);
+                onNavigate?.();
+              }}
+              disabled={!authenticated || guilds.length === 0}
+              className="w-full"
+            />
+          </div>
+        ) : null}
         <div className="mb-4 h-px w-full bg-[#2b334b]" aria-hidden="true" />
-        <NavSection title="Main" items={primaryItems} onNavigate={onNavigate} disabled={!authenticated} />
+        <NavSection items={primaryItems} onNavigate={onNavigate} disabled={!authenticated} />
         <div className="mb-4 h-px w-full bg-[#2b334b]" aria-hidden="true" />
-        <NavSection
-          title="Server Management"
-          items={configItems}
-          onNavigate={onNavigate}
-          disabled={!authenticated}
-        />
+        <NavSection items={configItems} onNavigate={onNavigate} disabled={!authenticated} />
       </div>
     </aside>
   );

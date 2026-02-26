@@ -20,6 +20,30 @@ class SoundCommands {
         await audioService.stopSound();
     }
 
+    async handleTop10Command(message) {
+        const prefix = getPrefix();
+        const topSounds = soundUtils.getTopSoundStats(10);
+
+        if (topSounds.length === 0) {
+            await message.channel.send({
+                content: `Noch keine Top-10 Daten verfügbar. Spiele zuerst Sounds mit \`${prefix}<sound>\`.`,
+                allowedMentions: { parse: [] }
+            });
+            return;
+        }
+
+        const lines = topSounds.map((sound, index) => {
+            const rank = String(index + 1).padStart(2, ' ');
+            const name = sound.name.padEnd(12, ' ');
+            return `${rank}. ${name} ${sound.playCount}x`;
+        });
+
+        await message.channel.send({
+            content: `**Top 10 Sounds**\n\`\`\`\n${lines.join('\n')}\n\`\`\``,
+            allowedMentions: { parse: [] }
+        });
+    }
+
     async sendMainMenu(interaction) {
         stateManager.updateSoundboardState({
             inTop20Menu: true,
@@ -426,6 +450,7 @@ class SoundCommands {
             `${cmd}<sound> - Sound abspielen`,
             `${cmd}/${cmd}9/${cmd}nippel/nippel - Übersicht`,
             `${cmd}help/${cmd}hilfe - Hilfe`,
+            `${cmd}top10 - Top 10 Statistik`,
             `${cmd}stop/${cmd}stopp - Stopp`,
             `${cmd}yt <url> - YouTube Stream`,
             `${cmd}upload - Upload per DM`,

@@ -16,7 +16,7 @@ export function SoundPadCard({
   noticeMessage: string | null;
 }) {
   return (
-    <Card className="flex h-full flex-col gap-4 p-4">
+    <Card className="flex flex-col gap-4 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold">{sound.name}</h3>

@@ -34,6 +34,12 @@ async function handleMessage(message) {
             return;
         }
 
+        // Top 10 Stats
+        if (content === `${prefix}top10`) {
+            await soundCommands.handleTop10Command(message);
+            return;
+        }
+
         // Stop Commands
         if (content === `${prefix}stop` || content === `${prefix}stopp`) {
             await soundCommands.handleStop(message);
@@ -58,6 +64,7 @@ async function handleMessage(message) {
         const reservedCommands = [
             `${prefix}help`,
             `${prefix}hilfe`,
+            `${prefix}top10`,
             `${prefix}stop`,
             `${prefix}stopp`,
             `${prefix}reset`,

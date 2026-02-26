@@ -6,9 +6,11 @@ import { TopBar } from '@/components/layout/TopBar';
 import { useAuth } from '@/features/auth/AuthContext';
 import { DISCORD_LOGIN_URL } from '@/features/auth/authApi';
 import { notify } from '@/components/ui/Toast';
+import { cn } from '@/shared/utils/cn';
 
 const PAGE_TITLES: Record<string, string> = {
   '/app/soundboard': 'Soundboard',
+  '/app/stats': 'Stats',
   '/app/manage': 'Manage Sounds',
   '/app/settings': 'Settings'
 };
@@ -88,7 +90,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-bg-elevated)]">
+      <div className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', isSoundboardPage ? 'bg-[var(--color-bg-soundboard)]' : 'bg-[var(--color-bg-elevated)]')}>
         <TopBar
           title={title}
           guildName={guildName}
@@ -107,8 +109,22 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             window.dispatchEvent(new Event('soundboard:refresh'));
           }}
         />
-        <main className="scrollbar-subtle min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-          <div className="mx-auto w-full max-w-[1550px]">{children}</div>
+        <main
+          className={cn(
+            'scrollbar-subtle min-w-0 flex-1',
+            isSoundboardPage
+              ? 'overflow-hidden px-4 pb-0 pt-4 sm:px-5 sm:pb-0 sm:pt-5'
+              : 'overflow-y-auto px-4 py-4 sm:px-6 sm:py-5'
+          )}
+        >
+          <div
+            className={cn(
+              'w-full',
+              isSoundboardPage ? 'flex h-full min-h-0 flex-col' : 'mx-auto max-w-[1550px]'
+            )}
+          >
+            {children}
+          </div>
         </main>
       </div>
     </div>

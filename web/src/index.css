@@ -6,6 +6,7 @@
 
 :root {
   --color-bg: #1f2333;
+  --color-bg-soundboard: #101522;
   --color-bg-elevated: #262b3f;
   --color-surface: #1b2030;
   --color-surface-soft: #2a3148;
@@ -105,3 +106,11 @@ textarea {
   border-radius: 999px;
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}

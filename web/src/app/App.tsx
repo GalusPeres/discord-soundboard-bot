@@ -3,12 +3,14 @@ import { DashboardShell } from '@/app/layout/DashboardShell';
 import { SoundboardPage } from '@/features/soundboard/SoundboardPage';
 import { ManagePage } from '@/features/manage/ManagePage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
+import { StatsPage } from '@/features/stats/StatsPage';
 
 function DashboardRoutes() {
   return (
     <DashboardShell>
       <Routes>
         <Route path="soundboard" element={<SoundboardPage />} />
+        <Route path="stats" element={<StatsPage />} />
         <Route path="manage" element={<ManagePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="soundboard" replace />} />

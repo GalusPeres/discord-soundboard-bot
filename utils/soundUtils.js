@@ -88,6 +88,27 @@ class SoundUtils {
             .map(entry => path.basename(entry[0], '.mp3')); // Nur Dateinamen ohne Erweiterung
     }
 
+    getTopSoundStats(limit = 10) {
+        this.ensureSoundCountsLoaded();
+        if (!this.soundCounts || Object.keys(this.soundCounts).length === 0) {
+            return [];
+        }
+
+        const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
+        return Object.entries(this.soundCounts)
+            .filter(([soundFile, playCount]) => {
+                const soundPath = path.join(SOUNDS_DIR, soundFile);
+                return fs.existsSync(soundPath) && Number(playCount) > 0;
+            })
+            .sort((a, b) => Number(b[1]) - Number(a[1]))
+            .slice(0, normalizedLimit)
+            .map(([soundFile, playCount]) => ({
+                fileName: soundFile,
+                name: path.basename(soundFile, '.mp3'),
+                playCount: Number(playCount) || 0
+            }));
+    }
+
     getNewestSounds() {
         if (!fs.existsSync(SOUNDS_DIR)) {
             return [];
