@@ -8,13 +8,11 @@ export function SoundPadCard({
   sound,
   onPlay,
   onPreview,
-  isPlaying,
   noticeMessage
 }: {
   sound: SoundItem;
-  onPlay: (soundName: string) => void;
+  onPlay: (sound: SoundItem) => void;
   onPreview: (previewUrl: string) => void;
-  isPlaying: boolean;
   noticeMessage: string | null;
 }) {
   return (
@@ -42,12 +40,11 @@ export function SoundPadCard({
           <Button
             size="sm"
             className="w-full"
-            onClick={() => onPlay(sound.name)}
-            disabled={isPlaying}
+            onClick={() => onPlay(sound)}
             data-testid={`sound-play-${sound.name}`}
           >
             <Play size={14} />
-            {isPlaying ? 'Playing...' : 'Play'}
+            Play
           </Button>
         </div>
         <Button

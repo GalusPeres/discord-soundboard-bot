@@ -13,6 +13,7 @@ const {
   SOUND_COUNTS_PATH,
   SOUND_LOGS_PATH
 } = require('../utils/constants');
+const { getPrefix: getRuntimePrefix, setPrefix: setRuntimePrefix } = require('../utils/prefixStore');
 
 const DISCORD_API_BASE = 'https://discord.com/api';
 const ADMINISTRATOR = 0x8n;
@@ -711,7 +712,7 @@ function createServer({ client, audioService }) {
 
   app.get('/api/settings', requireAuth, (_req, res) => {
     const config = readBotConfig();
-    const prefix = typeof config.prefix === 'string' && config.prefix.trim().length > 0 ? config.prefix : '8';
+    const prefix = getRuntimePrefix();
     res.json({
       prefix,
       maxFileSizeBytes: MAX_FILE_SIZE,
@@ -730,6 +731,7 @@ function createServer({ client, audioService }) {
       const config = readBotConfig();
       config.prefix = prefix;
       writeBotConfig(config);
+      setRuntimePrefix(prefix);
       logAction(`${req.authContext.user.username} updated bot prefix to "${prefix}"`);
       res.json({ success: true, prefix });
     } catch (error) {

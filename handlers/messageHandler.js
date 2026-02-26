@@ -1,15 +1,14 @@
 const soundCommands = require('../commands/soundCommands');
 const uploadCommands = require('../commands/uploadCommands');
 const downloadCommands = require('../commands/downloadCommands');
-const { PREFIX } = require('../utils/constants');
-
-const prefix = PREFIX;
+const { getPrefix } = require('../utils/prefixStore');
 
 async function handleMessage(message) {
     if (message.author.bot) return;
 
     try {
         const content = message.content;
+        const prefix = getPrefix();
 
         // Upload Commands
         if (content === `${prefix}upload`) {
@@ -41,6 +40,14 @@ async function handleMessage(message) {
             return;
         }
 
+        // YouTube Stream Command
+        if (content.startsWith(`${prefix}yt `) || content.startsWith(`${prefix}youtube `)) {
+            const firstSpaceIndex = content.indexOf(' ');
+            const url = firstSpaceIndex >= 0 ? content.substring(firstSpaceIndex + 1).trim() : '';
+            await soundCommands.handleYouTubeCommand(message, url);
+            return;
+        }
+
         // Main Menu Commands
         if ([`${prefix}9`, prefix, `${prefix}nippel`, 'nippel'].includes(content)) {
             await soundCommands.sendMainMenu(message);
@@ -57,7 +64,9 @@ async function handleMessage(message) {
             `${prefix}upload`,
             `${prefix}download`,
             `${prefix}9`,
-            `${prefix}nippel`
+            `${prefix}nippel`,
+            `${prefix}yt`,
+            `${prefix}youtube`
         ];
         if (content.startsWith(prefix) && !reservedCommands.includes(content)) {
             await soundCommands.handleSoundCommand(message, content);

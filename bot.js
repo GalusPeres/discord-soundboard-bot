@@ -3,7 +3,6 @@ const { initializeBot } = require('./utils/initialization');
 const messageHandler = require('./handlers/messageHandler');
 const buttonHandler = require('./handlers/buttonHandler');
 const audioService = require('./services/audioService');
-const { startWebServer } = require('./web/server.cjs');
 
 function loadBotToken() {
     const envToken = typeof process.env.DISCORD_BOT_TOKEN === 'string'
@@ -27,7 +26,51 @@ function loadBotToken() {
     throw new Error('Missing Discord bot token. Set DISCORD_BOT_TOKEN or config/config.json token.');
 }
 
+function parseBoolean(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+        return true;
+    }
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+        return false;
+    }
+
+    return null;
+}
+
+function loadWebEnabled() {
+    const envWebEnabled = parseBoolean(process.env.WEB_ENABLED);
+    if (envWebEnabled !== null) {
+        return envWebEnabled;
+    }
+
+    try {
+        const config = require('./config/config.json');
+        const webEnabled = config?.web?.enabled;
+
+        if (typeof webEnabled === 'boolean') {
+            return webEnabled;
+        }
+
+        if (typeof webEnabled === 'string') {
+            const parsed = parseBoolean(webEnabled);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+    } catch {
+        // Continue to default below.
+    }
+
+    return false;
+}
+
 const token = loadBotToken();
+const webEnabled = loadWebEnabled();
 
 let webServer = null;
 
@@ -45,8 +88,19 @@ const client = new Client({
 client.once('clientReady', () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
     initializeBot();
+
+    if (!webEnabled) {
+        console.log('[WEB] Dashboard disabled (set WEB_ENABLED=true to enable).');
+        return;
+    }
+
     if (!webServer) {
-        webServer = startWebServer({ client, audioService });
+        try {
+            const { startWebServer } = require('./web/server.cjs');
+            webServer = startWebServer({ client, audioService });
+        } catch (error) {
+            console.error('[WEB] Dashboard could not be started:', error.message);
+        }
     }
 });
 

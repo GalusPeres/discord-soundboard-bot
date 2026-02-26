@@ -1,6 +1,8 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
 const path = require('path');
 const fs = require('fs');
+const { spawn, spawnSync } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 const { SOUNDS_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
 const soundUtils = require('../utils/soundUtils');
 const stateManager = require('../utils/stateManager');
@@ -9,6 +11,8 @@ class AudioService {
     constructor() {
         this.player = null;
         this.connection = null;
+        this.currentStreamSource = null;
+        this.ytDlpCommand = null;
         this.lastChannelId = null;
         this.lastGuildId = null;
         this.leaveTimeout = null;
@@ -16,6 +20,19 @@ class AudioService {
     }
 
     // Erstellt einen frischen Player für jeden Sound
+    cleanupCurrentStreamSource() {
+        if (!this.currentStreamSource) {
+            return;
+        }
+
+        try {
+            this.currentStreamSource.destroy();
+        } catch (error) {
+            // Ignorieren
+        }
+        this.currentStreamSource = null;
+    }
+
     createFreshPlayer() {
         // Alten Player aufräumen
         if (this.player) {
@@ -26,6 +43,8 @@ class AudioService {
                 // Ignorieren
             }
         }
+
+        this.cleanupCurrentStreamSource();
 
         this.player = createAudioPlayer({
             behaviors: {
@@ -123,6 +142,183 @@ class AudioService {
         soundUtils.updateSoundCount(soundFilePath);
     }
 
+    normalizeYouTubeUrl(rawUrl) {
+        if (typeof rawUrl !== 'string') {
+            return null;
+        }
+        const trimmed = rawUrl.trim();
+        if (!trimmed) {
+            return null;
+        }
+        let parsedUrl;
+        try {
+            parsedUrl = new URL(trimmed);
+        } catch (error) {
+            return null;
+        }
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+            return null;
+        }
+        const hostname = parsedUrl.hostname.toLowerCase();
+        const allowedHosts = new Set([
+            'youtube.com',
+            'www.youtube.com',
+            'm.youtube.com',
+            'music.youtube.com',
+            'youtu.be',
+            'www.youtu.be'
+        ]);
+        if (!allowedHosts.has(hostname)) {
+            return null;
+        }
+        return parsedUrl.toString();
+    }
+    resolveYtDlpCommand() {
+        if (this.ytDlpCommand) {
+            return this.ytDlpCommand;
+        }
+        const candidates = [
+            { command: 'yt-dlp', baseArgs: [] },
+            { command: 'python', baseArgs: ['-m', 'yt_dlp'] },
+            { command: 'py', baseArgs: ['-m', 'yt_dlp'] }
+        ];
+        for (const candidate of candidates) {
+            try {
+                const result = spawnSync(candidate.command, [...candidate.baseArgs, '--version'], {
+                    windowsHide: true,
+                    stdio: 'ignore',
+                    timeout: 5000
+                });
+                if (result.status === 0) {
+                    this.ytDlpCommand = candidate;
+                    return candidate;
+                }
+            } catch (error) {
+                // Ignorieren und naechste Option pruefen.
+            }
+        }
+        return null;
+    }
+    createYtDlpProcess(ytDlpCommand, url) {
+        return spawn(
+            ytDlpCommand.command,
+            [
+                ...ytDlpCommand.baseArgs,
+                '--no-playlist',
+                '--no-warnings',
+                '--quiet',
+                '-f',
+                'bestaudio/best',
+                '-o',
+                '-',
+                url
+            ],
+            {
+                windowsHide: true,
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        );
+    }
+    createTranscodeProcess() {
+        return spawn(
+            ffmpegPath,
+            [
+                '-hide_banner',
+                '-loglevel',
+                'error',
+                '-i',
+                'pipe:0',
+                '-vn',
+                '-c:a',
+                'libopus',
+                '-b:a',
+                '128k',
+                '-f',
+                'ogg',
+                'pipe:1'
+            ],
+            {
+                windowsHide: true,
+                stdio: ['pipe', 'pipe', 'pipe']
+            }
+        );
+    }
+    async playYouTubeStream(context, rawUrl) {
+        const url = this.normalizeYouTubeUrl(rawUrl);
+        if (!url) {
+            await this.sendTempNotice(context, 'Ungueltige YouTube-URL. Nutze: 8yt <url>', 4500);
+            return;
+        }
+        const ytDlpCommand = this.resolveYtDlpCommand();
+        if (!ytDlpCommand) {
+            await this.sendTempNotice(context, 'yt-dlp fehlt. Installiere mit: python -m pip install -U yt-dlp', 7000);
+            return;
+        }
+        if (!ffmpegPath) {
+            await this.sendTempNotice(context, 'FFmpeg wurde nicht gefunden.', 5000);
+            return;
+        }
+        const voiceChannelId = context?.member?.voice?.channelId;
+        if (!voiceChannelId) {
+            await this.sendTempNotice(context, 'Du musst in einem Sprachkanal sein.', 3000);
+            return;
+        }
+        const channel = context.guild.channels.cache.get(voiceChannelId);
+        try {
+            await this.ensureVoiceConnection(channel);
+        } catch (error) {
+            await this.sendTempNotice(context, 'Verbindung fehlgeschlagen.', 5000);
+            return;
+        }
+        try {
+            const player = this.createFreshPlayer();
+            const ytDlpProcess = this.createYtDlpProcess(ytDlpCommand, url);
+            const ffmpegProcess = this.createTranscodeProcess();
+            this.currentStreamSource = {
+                destroy: () => {
+                    try {
+                        ytDlpProcess.stdout?.unpipe(ffmpegProcess.stdin);
+                    } catch (error) {}
+                    try {
+                        ytDlpProcess.kill();
+                    } catch (error) {}
+                    try {
+                        ffmpegProcess.kill();
+                    } catch (error) {}
+                }
+            };
+            ytDlpProcess.stdout.pipe(ffmpegProcess.stdin);
+            ytDlpProcess.stderr.on('data', (chunk) => {
+                const message = chunk.toString().trim();
+                if (message) {
+                    console.log(`[YT-DLP] ${message}`);
+                }
+            });
+            ffmpegProcess.stderr.on('data', (chunk) => {
+                const message = chunk.toString().trim();
+                if (message) {
+                    console.log(`[FFMPEG] ${message}`);
+                }
+            });
+            ytDlpProcess.on('error', (processError) => {
+                console.error('[YT-DLP] Prozessfehler:', processError.message);
+            });
+            ffmpegProcess.on('error', (processError) => {
+                console.error('[FFMPEG] Prozessfehler:', processError.message);
+            });
+            const resource = createAudioResource(ffmpegProcess.stdout, {
+                inputType: StreamType.OggOpus,
+                inlineVolume: false
+            });
+            player.play(resource);
+            this.connection.subscribe(player);
+            const requester = context?.author?.tag || context?.user?.tag || context?.author?.id || context?.user?.id || 'unknown';
+            this.logToFile(`[YT] ${requester} started stream: ${url}`);
+        } catch (error) {
+            console.error('[YT] Konnte Stream nicht starten:', error.message);
+            await this.sendTempNotice(context, 'YouTube-Stream konnte nicht gestartet werden.', 5000);
+        }
+    }
     async playSoundWithoutCounting(interaction, soundName) {
         const soundFilePath = path.join(SOUNDS_DIR, `${soundName}.mp3`);
 
@@ -320,6 +516,7 @@ class AudioService {
         if (this.player && this.player.state.status === AudioPlayerStatus.Playing) {
             this.player.stop(true);
         }
+        this.cleanupCurrentStreamSource();
     }
 
     async disconnect() {
@@ -333,6 +530,7 @@ class AudioService {
             } catch (e) {}
             this.player = null;
         }
+        this.cleanupCurrentStreamSource();
 
         // Connection trennen
         if (this.connection) {
@@ -460,3 +658,4 @@ class AudioService {
 }
 
 module.exports = new AudioService();
+

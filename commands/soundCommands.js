@@ -3,14 +3,17 @@ const audioService = require('../services/audioService');
 const soundUtils = require('../utils/soundUtils');
 const embedUtils = require('../utils/embedUtils');
 const stateManager = require('../utils/stateManager');
-const { PREFIX } = require('../utils/constants');
-
-const prefix = PREFIX;
+const { getPrefix } = require('../utils/prefixStore');
 
 class SoundCommands {
     async handleSoundCommand(message, content) {
+        const prefix = getPrefix();
         const soundName = content.substring(prefix.length);
         await audioService.playSound(message, soundName, false, false);
+    }
+
+    async handleYouTubeCommand(message, url) {
+        await audioService.playYouTubeStream(message, url);
     }
 
     async handleStop(message) {
@@ -416,6 +419,7 @@ class SoundCommands {
     }
 
     injectHelpCommandsIntoCodeBlock(codeBlock) {
+        const prefix = getPrefix();
         const cmd = prefix;
         const separator = '-'.repeat(36);
         const commandLines = [
@@ -423,6 +427,7 @@ class SoundCommands {
             `${cmd}/${cmd}9/${cmd}nippel/nippel - Übersicht`,
             `${cmd}help/${cmd}hilfe - Hilfe`,
             `${cmd}stop/${cmd}stopp - Stopp`,
+            `${cmd}yt <url> - YouTube Stream`,
             `${cmd}upload - Upload per DM`,
             `${cmd}download - Download per DM`,
             separator

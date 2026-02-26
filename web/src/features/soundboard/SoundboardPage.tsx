@@ -18,7 +18,6 @@ export function SoundboardPage() {
 
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'top' | 'new'>('all');
-  const [playingSoundName, setPlayingSoundName] = useState<string | null>(null);
   const [playNotice, setPlayNotice] = useState<{ soundName: string; message: string } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
@@ -62,7 +61,7 @@ export function SoundboardPage() {
 
   useEffect(() => {
     const handleExternalRefresh = () => {
-      void reload();
+      void reload({ background: true });
     };
 
     window.addEventListener('soundboard:refresh', handleExternalRefresh);
@@ -91,22 +90,20 @@ export function SoundboardPage() {
     void audio.play();
   };
 
-  const handlePlay = (soundName: string) => {
+  const handlePlay = (sound: SoundItem) => {
     void (async () => {
+      const soundName = sound.name;
       if (!selectedGuildId) {
         showPlayNotice(soundName, 'Select a guild before playing sounds.');
         return;
       }
 
       try {
-        setPlayingSoundName(soundName);
         await playSound(soundName, selectedGuildId);
-        await reload();
+        await reload({ background: true });
       } catch (playError) {
         const message = playError instanceof Error ? playError.message : 'Unable to play sound';
         showPlayNotice(soundName, message);
-      } finally {
-        setPlayingSoundName(null);
       }
     })();
   };
@@ -189,7 +186,6 @@ export function SoundboardPage() {
               sounds={filteredSounds}
               onPlay={handlePlay}
               onPreview={handlePreview}
-              playingSoundName={playingSoundName}
               playNotice={playNotice}
               emptyText="No sounds match your search."
             />
@@ -199,7 +195,6 @@ export function SoundboardPage() {
               sounds={filteredSounds}
               onPlay={handlePlay}
               onPreview={handlePreview}
-              playingSoundName={playingSoundName}
               playNotice={playNotice}
               emptyText="No top sounds available for this filter."
             />
@@ -209,7 +204,6 @@ export function SoundboardPage() {
               sounds={filteredSounds}
               onPlay={handlePlay}
               onPreview={handlePreview}
-              playingSoundName={playingSoundName}
               playNotice={playNotice}
               emptyText="No recent sounds available for this filter."
             />
@@ -233,14 +227,12 @@ function SoundGrid({
   sounds,
   onPlay,
   onPreview,
-  playingSoundName,
   playNotice,
   emptyText
 }: {
   sounds: SoundItem[];
-  onPlay: (soundName: string) => void;
+  onPlay: (sound: SoundItem) => void;
   onPreview: (previewUrl: string) => void;
-  playingSoundName: string | null;
   playNotice: { soundName: string; message: string } | null;
   emptyText: string;
 }) {
@@ -256,7 +248,6 @@ function SoundGrid({
           sound={sound}
           onPlay={onPlay}
           onPreview={onPreview}
-          isPlaying={playingSoundName === sound.name}
           noticeMessage={playNotice?.soundName === sound.name ? playNotice.message : null}
         />
       ))}
