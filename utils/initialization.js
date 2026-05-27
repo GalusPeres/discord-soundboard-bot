@@ -8,6 +8,10 @@ function initializeBot() {
     stateManager.resetAll();
     
     // Erstelle Sound Counts Datei
+    const countsDir = path.dirname(SOUND_COUNTS_PATH);
+    if (!fs.existsSync(countsDir)) {
+        fs.mkdirSync(countsDir, { recursive: true });
+    }
     if (!fs.existsSync(SOUND_COUNTS_PATH)) {
         fs.writeFileSync(SOUND_COUNTS_PATH, JSON.stringify({}));
     }

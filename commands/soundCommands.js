@@ -3,12 +3,11 @@ const audioService = require('../services/audioService');
 const soundUtils = require('../utils/soundUtils');
 const embedUtils = require('../utils/embedUtils');
 const stateManager = require('../utils/stateManager');
-const { PREFIX } = require('../utils/constants');
-
-const prefix = PREFIX;
+const { publicConfig } = require('../config/env');
 
 class SoundCommands {
     async handleSoundCommand(message, content) {
+        const prefix = publicConfig().prefix;
         const soundName = content.substring(prefix.length);
         await audioService.playSound(message, soundName, false, false);
     }
@@ -416,7 +415,7 @@ class SoundCommands {
     }
 
     injectHelpCommandsIntoCodeBlock(codeBlock) {
-        const cmd = prefix;
+        const cmd = publicConfig().prefix;
         const separator = '-'.repeat(36);
         const commandLines = [
             `${cmd}<sound> - Sound abspielen`,

@@ -1,15 +1,14 @@
 const soundCommands = require('../commands/soundCommands');
 const uploadCommands = require('../commands/uploadCommands');
 const downloadCommands = require('../commands/downloadCommands');
-const { PREFIX } = require('../utils/constants');
-
-const prefix = PREFIX;
+const { publicConfig } = require('../config/env');
 
 async function handleMessage(message) {
     if (message.author.bot) return;
 
     try {
         const content = message.content;
+        const prefix = publicConfig().prefix;
 
         // Upload Commands
         if (content === `${prefix}upload`) {

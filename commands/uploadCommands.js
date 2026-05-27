@@ -1,20 +1,22 @@
 const { EmbedBuilder, ButtonBuilder, ActionRowBuilder, ButtonStyle } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
-const { SOUNDS_DIR, MAX_FILE_SIZE, MAX_FILENAME_LENGTH, SOUND_LOGS_PATH } = require('../utils/constants');
+const { SOUNDS_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
+const { publicConfig } = require('../config/env');
 const stateManager = require('../utils/stateManager');
 
 class UploadCommands {
     async handleUpload(message) {
         try {
+            const uploadSettings = publicConfig();
             const uploadEmbed = new EmbedBuilder()
                 .setColor(0x00AE86)
                 .setTitle('🎵 Sound Upload')
                 .setDescription('**Willkommen beim Sound-Upload!**\n\nSo funktioniert es:\n• Klicke auf "Upload starten"\n• Lade dann deine MP3-Datei mit dem + Button hoch\n• Nach dem Upload erscheint automatisch der Transfer-Button')
                 .addFields(
                     { name: '📋 Format', value: 'Nur MP3', inline: true },
-                    { name: '📏 Max. Größe', value: '10MB', inline: true },
-                    { name: '🏷️ Sound-Name', value: 'Max. 10 Zeichen (ohne .mp3)', inline: true }
+                    { name: '📏 Max. Größe', value: `${uploadSettings.maxUploadSizeMb}MB`, inline: true },
+                    { name: '🏷️ Sound-Name', value: `Max. ${uploadSettings.maxFilenameLength} Zeichen (ohne .mp3)`, inline: true }
                 );
 
             const uploadButton = new ButtonBuilder()
@@ -39,6 +41,7 @@ class UploadCommands {
     async handleFileUpload(message) {
         const activeUploaders = stateManager.getActiveUploaders();
         if (!activeUploaders.has(message.author.id)) return;
+        const uploadSettings = publicConfig();
 
         console.log('Datei hochgeladen von:', message.author.tag);
         
@@ -48,8 +51,8 @@ class UploadCommands {
         // File validation
         const fileExtension = path.extname(attachment.name).toLowerCase();
 
-        if (attachment.size > MAX_FILE_SIZE) {
-            await message.channel.send({ content: '❌ Datei ist zu groß! Maximum: 10MB', allowedMentions: { parse: [] } });
+        if (attachment.size > uploadSettings.maxUploadSizeMb * 1024 * 1024) {
+            await message.channel.send({ content: `❌ Datei ist zu groß! Maximum: ${uploadSettings.maxUploadSizeMb}MB`, allowedMentions: { parse: [] } });
             activeUploaders.delete(message.author.id);
             return;
         }
@@ -68,8 +71,8 @@ class UploadCommands {
             fileName = 'sound' + Date.now();
         }
 
-        if (fileName.length > MAX_FILENAME_LENGTH) {
-            await message.channel.send({ content: `❌ Dateiname zu lang! Maximum: ${MAX_FILENAME_LENGTH} Zeichen\n\n**"${fileName}"** hat ${fileName.length} Zeichen.\n\nBitte benenne die Datei um oder wähle einen kürzeren Namen.`, allowedMentions: { parse: [] } });
+        if (fileName.length > uploadSettings.maxFilenameLength) {
+            await message.channel.send({ content: `❌ Dateiname zu lang! Maximum: ${uploadSettings.maxFilenameLength} Zeichen\n\n**"${fileName}"** hat ${fileName.length} Zeichen.\n\nBitte benenne die Datei um oder wähle einen kürzeren Namen.`, allowedMentions: { parse: [] } });
             activeUploaders.delete(message.author.id);
             return;
         }

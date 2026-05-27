@@ -1,3 +1,10 @@
+# Botboard Integration Note
+
+This workspace version is configured through environment variables. Botboard
+is optional: set `BOT_API_TOKEN` only when its HTTP API should be exposed to
+the dashboard. In the container setup, persistent sound files are mounted
+under `/data/sounds`; see `.env.example` for this container's variables.
+
 # 🎵 Sound Files Directory
 
 Dieses Verzeichnis enthält die MP3-Sound-Dateien für den Discord Soundboard Bot.

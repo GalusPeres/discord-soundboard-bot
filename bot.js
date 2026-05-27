@@ -1,9 +1,12 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { token } = require('./config/config.json');
+const { loadConfig } = require('./config/env');
 const { initializeBot } = require('./utils/initialization');
 const messageHandler = require('./handlers/messageHandler');
 const buttonHandler = require('./handlers/buttonHandler');
 const audioService = require('./services/audioService');
+const { startApi } = require('./api/server');
+
+const { token } = loadConfig();
 
 const client = new Client({
     intents: [
@@ -19,6 +22,15 @@ const client = new Client({
 client.once('clientReady', () => {
     console.log(`Eingeloggt als ${client.user.tag}`);
     initializeBot();
+    if (process.env.BOT_API_TOKEN) {
+        try {
+            client.apiServer = startApi(client);
+        } catch (err) {
+            console.error('Failed to start dashboard HTTP API:', err);
+        }
+    } else {
+        console.log('Dashboard HTTP API disabled (BOT_API_TOKEN is not configured).');
+    }
 });
 
 client.on('messageCreate', messageHandler);
@@ -31,5 +43,15 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 // Audio Player Events Setup
 audioService.setupAudioEvents();
+
+async function gracefulShutdown() {
+    console.log('Shutting down...');
+    if (client.apiServer) await new Promise((r) => client.apiServer.close(r));
+    try { await audioService.disconnect(); } catch (_) {}
+    client.destroy();
+    process.exit(0);
+}
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);
 
 client.login(token);

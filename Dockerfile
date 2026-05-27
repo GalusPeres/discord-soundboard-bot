@@ -4,17 +4,13 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install
+RUN npm ci --omit=dev
 
-# Kopiere alle Dateien - constants.js ist jetzt in utils/ und wird automatisch mitkopiert
 COPY . .
 
-# Kopiere die Beispieldateien in die entsprechenden Konfigurationsdateien
-RUN mkdir -p config && \
-    cp config/config.example.json config/config.json && \
-    cp config/soundCounts.example.json config/soundCounts.json
+RUN mkdir -p /data/sounds /data/temp
 
-# Erstelle den `sounds`-Ordner (falls nicht vorhanden)
-RUN mkdir -p sounds
+ENV NODE_ENV=production
+EXPOSE 3002
 
-CMD ["npm", "start"]
+CMD ["node", "bot.js"]

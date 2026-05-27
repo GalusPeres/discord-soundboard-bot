@@ -1,7 +1,7 @@
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
 const path = require('path');
 const fs = require('fs');
-const { SOUNDS_DIR, SOUND_LOGS_PATH } = require('../utils/constants');
+const { SOUNDS_DIR, SOUND_LOGS_PATH, AUTO_LEAVE_DELAY_MS } = require('../utils/constants');
 const soundUtils = require('../utils/soundUtils');
 const stateManager = require('../utils/stateManager');
 
@@ -12,7 +12,7 @@ class AudioService {
         this.lastChannelId = null;
         this.lastGuildId = null;
         this.leaveTimeout = null;
-        this.leaveDelay = 30000; // 30 Sekunden Verzögerung
+        this.leaveDelay = AUTO_LEAVE_DELAY_MS;
     }
 
     // Erstellt einen frischen Player für jeden Sound

@@ -1,0 +1,47 @@
+function required(env, name) {
+    const value = env[name];
+    if (!value) throw new Error(`Missing required environment variable: ${name}`);
+    return value;
+}
+
+function text(env, name, fallback) {
+    return env[name] ?? fallback;
+}
+
+function number(env, name, fallback) {
+    const raw = env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) throw new Error(`Invalid numeric environment variable: ${name}`);
+    return value;
+}
+
+const ENV_VARS = Object.freeze({
+    token: 'DISCORD_TOKEN',
+    prefix: 'COMMAND_PREFIX',
+    maxUploadSizeMb: 'MAX_UPLOAD_SIZE_MB',
+    maxFilenameLength: 'MAX_FILENAME_LENGTH',
+    autoLeaveDelayMs: 'AUTO_LEAVE_DELAY_MS',
+    soundsDir: 'SOUNDS_DIR',
+    soundCountsPath: 'SOUND_COUNTS_PATH',
+    soundLogsPath: 'SOUND_LOGS_PATH',
+    tempDir: 'TEMP_DIR',
+});
+
+function publicConfig(env = process.env) {
+    return {
+        prefix: text(env, ENV_VARS.prefix, '8'),
+        maxUploadSizeMb: number(env, ENV_VARS.maxUploadSizeMb, 10),
+        maxFilenameLength: number(env, ENV_VARS.maxFilenameLength, 10),
+        autoLeaveDelayMs: number(env, ENV_VARS.autoLeaveDelayMs, 30000),
+    };
+}
+
+function loadConfig(env = process.env) {
+    return {
+        ...publicConfig(env),
+        token: required(env, ENV_VARS.token),
+    };
+}
+
+module.exports = { ENV_VARS, loadConfig, publicConfig };
