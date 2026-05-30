@@ -40,6 +40,9 @@ function playRoutes(client) {
             stateManager.setCurrentPlayingFileName(sound);
             stateManager.setCurrentlyPlayingSound(sound);
             soundUtils.updateSoundCount(file);
+            let who = 'dashboard';
+            try { if (req.headers['x-dashboard-user-name']) who = decodeURIComponent(req.headers['x-dashboard-user-name']); } catch (_) {}
+            console.log(`[PLAY] ${who} → Sound "${sound}" in "${channel.name}"`);
             res.json({ playing: sound, channelId, guildId });
         } catch (err) {
             res.status(500).json({ error: err.message });

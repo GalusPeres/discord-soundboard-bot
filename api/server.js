@@ -2,8 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const { bearerAuth } = require('./auth');
 const consoleInterceptor = require('./consoleInterceptor');
+const manifestRoutes = require('./routes/manifest');
 const statusRoutes = require('./routes/status');
 const guildsRoutes = require('./routes/guilds');
+const statsRoutes = require('./routes/stats');
 const soundsRoutes = require('./routes/sounds');
 const playRoutes = require('./routes/play');
 const settingsRoutes = require('./routes/settings');
@@ -21,8 +23,10 @@ function startApi(client) {
     app.use(express.json({ limit: '1mb' }));
     app.use(bearerAuth);
 
+    app.use('/api/manifest', manifestRoutes(client));
     app.use('/api/status', statusRoutes(client));
     app.use('/api/guilds', guildsRoutes(client));
+    app.use('/api/stats', statsRoutes(client));
     app.use('/api/sounds', soundsRoutes());
     app.use('/api/play', playRoutes(client));
     app.use('/api/settings', settingsRoutes());

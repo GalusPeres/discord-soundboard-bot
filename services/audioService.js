@@ -336,8 +336,6 @@ class AudioService {
         const realUsers = channel.members.filter(member => !member.user.bot);
         const realUserCount = realUsers.size;
 
-        console.log(`👥 [AUTO-LEAVE] Channel "${channel.name}" hat ${realUserCount} echte User`);
-
         if (realUserCount === 0) {
             // Keine echten User mehr - starte Leave-Timer
             if (!this.leaveTimeout) {

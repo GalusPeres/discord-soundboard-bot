@@ -4,9 +4,41 @@ const { writeEnvUpdates } = require('../envFile');
 const audioService = require('../../services/audioService');
 
 const EDITABLE_KEYS = new Set(['prefix', 'maxUploadSizeMb', 'maxFilenameLength', 'autoLeaveDelayMs']);
+const NUMBER_KEYS = new Set(['maxUploadSizeMb', 'maxFilenameLength', 'autoLeaveDelayMs']);
+const LABELS = Object.freeze({
+    prefix: 'Command prefix',
+    maxUploadSizeMb: 'Max upload size',
+    maxFilenameLength: 'Max filename length',
+    autoLeaveDelayMs: 'Auto leave delay',
+});
+
+function settingsSchema() {
+    return {
+        managedBy: 'environment',
+        sections: [
+            {
+                id: 'general',
+                label: 'General',
+                fields: ['prefix', 'maxUploadSizeMb', 'maxFilenameLength', 'autoLeaveDelayMs'].map((key) => ({
+                    key,
+                    env: ENV_VARS[key],
+                    label: LABELS[key] || key,
+                    type: NUMBER_KEYS.has(key) ? 'number' : 'text',
+                    editable: EDITABLE_KEYS.has(key),
+                    restartRequired: false,
+                    secret: false,
+                })),
+            },
+        ],
+    };
+}
 
 function settingsRoutes() {
     const router = Router();
+
+    router.get('/schema', (req, res) => {
+        res.json(settingsSchema());
+    });
 
     router.get('/', (req, res) => {
         res.json({
