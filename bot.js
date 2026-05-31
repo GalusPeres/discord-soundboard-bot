@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { loadConfig } = require('./config/env');
+const { loadConfig, loadEnvFile } = require('./config/env');
+loadEnvFile();
 const { initializeBot } = require('./utils/initialization');
 const messageHandler = require('./handlers/messageHandler');
 const buttonHandler = require('./handlers/buttonHandler');

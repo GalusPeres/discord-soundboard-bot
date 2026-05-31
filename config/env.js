@@ -1,3 +1,29 @@
+const fs = require('node:fs');
+
+// Load persisted settings from BOT_ENV_FILE (default /data/.env) into
+// process.env before the bot config is read. Values in the file override
+// the container ENV so Botboard-saved settings survive restarts.
+function loadEnvFile() {
+    const filePath = process.env.BOT_ENV_FILE || '/data/.env';
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        for (const line of content.split(/\r?\n/)) {
+            const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+            if (!match) continue;
+            const key = match[1];
+            let value = match[2].trim();
+            // Strip surrounding quotes added by encodeValue
+            if ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.slice(1, -1);
+            }
+            process.env[key] = value;
+        }
+    } catch (err) {
+        if (err.code !== 'ENOENT') console.warn('[env] Could not load env file:', err.message);
+    }
+}
+
 function required(env, name) {
     const value = env[name];
     if (!value) throw new Error(`Missing required environment variable: ${name}`);
@@ -44,4 +70,4 @@ function loadConfig(env = process.env) {
     };
 }
 
-module.exports = { ENV_VARS, loadConfig, publicConfig };
+module.exports = { ENV_VARS, loadConfig, publicConfig, loadEnvFile };
