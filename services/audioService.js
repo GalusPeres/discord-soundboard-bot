@@ -201,17 +201,17 @@ class AudioService {
 
         if (needsNewConnection) {
 
-            // Alte Connection beenden
+            // Destroy old connection before moving to a new channel.
+            // Remove all listeners first so Destroyed/Disconnected events from the
+            // old connection don't interfere with the new one.
             if (this.connection) {
                 try {
+                    this.connection.removeAllListeners();
                     this.connection.destroy();
-                } catch (error) {
-                    // Ignorieren
-                }
+                } catch (_) {}
                 this.connection = null;
             }
 
-            // Neue Connection erstellen
             this.connection = joinVoiceChannel({
                 channelId: channelId,
                 guildId: guildId,
@@ -232,40 +232,31 @@ class AudioService {
             throw new Error('Keine Connection vorhanden');
         }
 
-        // Wenn bereits ready, sofort weiter
         if (this.connection.state.status === VoiceConnectionStatus.Ready) {
             return;
         }
 
-        // Warte auf Ready-Event mit kurzem Timeout
         return new Promise((resolve, reject) => {
+            // Give enough time for a channel switch (Discord needs a moment).
             const timeout = setTimeout(() => {
-                resolve(); // Timeout - versuche trotzdem
-            }, 2000);
+                cleanup();
+                resolve();
+            }, 5000);
 
             const cleanup = () => {
                 clearTimeout(timeout);
                 this.connection?.off(VoiceConnectionStatus.Ready, onReady);
-                this.connection?.off(VoiceConnectionStatus.Disconnected, onError);
                 this.connection?.off(VoiceConnectionStatus.Destroyed, onError);
             };
 
-            const onReady = () => {
-                cleanup();
-                resolve();
-            };
+            const onReady = () => { cleanup(); resolve(); };
+            // Only treat Destroyed as a fatal error — Disconnected is transient during
+            // channel switches and must not abort the connection attempt.
+            const onError = () => { cleanup(); reject(new Error('Connection failed')); };
 
-            const onError = () => {
-                cleanup();
-                reject(new Error('Connection failed'));
-            };
-
-            // Event-Listener
             this.connection.on(VoiceConnectionStatus.Ready, onReady);
-            this.connection.on(VoiceConnectionStatus.Disconnected, onError);
             this.connection.on(VoiceConnectionStatus.Destroyed, onError);
 
-            // Für den Fall dass die Connection zwischen der Prüfung und hier ready wird
             if (this.connection.state.status === VoiceConnectionStatus.Ready) {
                 onReady();
             }
