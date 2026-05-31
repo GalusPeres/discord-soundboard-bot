@@ -2,6 +2,7 @@ const { Router } = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const archiver = require('archiver');
 const { SOUNDS_DIR, SOUND_COUNTS_PATH } = require('../../utils/constants');
 const { publicConfig } = require('../../config/env');
 
@@ -127,6 +128,19 @@ function soundsRoutes() {
             fs.writeFileSync(SOUND_COUNTS_PATH, JSON.stringify(counts, null, 2));
         }
         res.json({ name: newName });
+    });
+
+    router.get('/download-zip', (req, res) => {
+        if (!fs.existsSync(SOUNDS_DIR)) return res.status(404).json({ error: 'no sounds directory' });
+        const files = fs.readdirSync(SOUNDS_DIR).filter((f) => f.endsWith('.mp3'));
+        if (files.length === 0) return res.status(404).json({ error: 'no sounds' });
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', 'attachment; filename="sounds.zip"');
+        const archive = archiver('zip', { zlib: { level: 0 } });
+        archive.on('error', (err) => { if (!res.headersSent) res.status(500).end(); else res.end(); });
+        archive.pipe(res);
+        for (const file of files) archive.file(path.join(SOUNDS_DIR, file), { name: file });
+        archive.finalize();
     });
 
     router.delete('/:name', (req, res) => {
