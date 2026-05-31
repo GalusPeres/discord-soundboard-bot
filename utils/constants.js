@@ -16,8 +16,8 @@ module.exports = {
     PNG_URL: 'https://i.postimg.cc/Zn6vqjY2/placeholder.png',
     
     // File Paths
-    SOUND_COUNTS_PATH: configuredPath('SOUND_COUNTS_PATH', '/data/soundCounts.json'),
-    SOUND_LOGS_PATH: configuredPath('SOUND_LOGS_PATH', '/data/sound_logs.txt'),
+    SOUND_COUNTS_PATH: configuredPath('SOUND_COUNTS_PATH', '/app/config/soundCounts.json'),
+    SOUND_LOGS_PATH: configuredPath('SOUND_LOGS_PATH', '/app/config/sound_logs.txt'),
     SOUNDS_DIR: configuredPath('SOUNDS_DIR', path.join(__dirname, '../sounds')),
     TEMP_DIR: configuredPath('TEMP_DIR', path.join(__dirname, '../temp')),
     
