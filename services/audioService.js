@@ -111,6 +111,9 @@ class AudioService {
             return;
         }
 
+        const who = context.user?.globalName || context.user?.username || context.author?.globalName || context.author?.username || 'unknown';
+        console.log(`[PLAY] ${who} → Sound "${soundName}" in "${channel?.name || voiceChannelId}"`);
+
         // Frischen Player erstellen und Sound abspielen
         const player = this.createFreshPlayer();
         const resource = createAudioResource(soundFilePath, {
@@ -153,6 +156,10 @@ class AudioService {
             return;
         }
 
+        const who = interaction.user?.globalName || interaction.user?.username || 'unknown';
+        const channelName = interaction.guild?.channels.cache.get(interaction.member.voice.channelId)?.name || interaction.member.voice.channelId;
+        console.log(`[PLAY] ${who} → Sound "${soundName}" in "${channelName}"`);
+
         // Frischen Player erstellen und Sound abspielen
         try {
             const player = this.createFreshPlayer();
@@ -191,39 +198,48 @@ class AudioService {
             return;
         }
 
-        // Neue Connection benötigt?
-        const needsNewConnection = !this.connection ||
-            this.connection.joinConfig.channelId !== channelId ||
-            this.connection.state.status === 'destroyed' ||
+        // Komplett neu aufbauen nötig? Nur wenn keine Connection, zerstört oder anderer Guild.
+        // Für Kanalwechsel im selben Guild NICHT destroy() aufrufen — joinVoiceChannel
+        // updated die bestehende Connection, die Player-Subscription bleibt erhalten
+        // → laufender Sound wird nicht unterbrochen.
+        const mustRebuild = !this.connection ||
+            this.connection.state.status === VoiceConnectionStatus.Destroyed ||
             this.connection.state.status === 'disconnected' ||
-            this.lastChannelId !== channelId ||
             this.lastGuildId !== guildId;
 
-        if (needsNewConnection) {
+        if (mustRebuild && this.connection) {
+            try {
+                this.connection.removeAllListeners();
+                this.connection.destroy();
+            } catch (_) {}
+            this.connection = null;
+        }
 
-            // Destroy old connection before moving to a new channel.
-            // Remove all listeners first so Destroyed/Disconnected events from the
-            // old connection don't interfere with the new one.
-            if (this.connection) {
-                try {
-                    this.connection.removeAllListeners();
-                    this.connection.destroy();
-                } catch (_) {}
-                this.connection = null;
-            }
+        const needsJoin = mustRebuild || this.lastChannelId !== channelId;
 
+        if (needsJoin) {
+            const isNew = !this.connection;
+
+            // joinVoiceChannel erstellt neue Connection ODER bewegt bestehende in
+            // anderen Kanal — gibt dabei immer das selbe Connection-Objekt zurück,
+            // sodass connection.subscribe(player) gültig bleibt.
             this.connection = joinVoiceChannel({
                 channelId: channelId,
                 guildId: guildId,
                 adapterCreator: channel.guild.voiceAdapterCreator,
             });
 
-            this.setupConnectionEvents(this.connection);
+            if (isNew) {
+                // Nur bei echter neuer Connection Events registrieren
+                this.setupConnectionEvents(this.connection);
+            }
+
             this.lastChannelId = channelId;
             this.lastGuildId = guildId;
 
-            // NUR bei neuer Connection auf Ready warten
-            await this.waitForConnectionReady();
+            if (this.connection.state.status !== VoiceConnectionStatus.Ready) {
+                await this.waitForConnectionReady();
+            }
         }
     }
 
